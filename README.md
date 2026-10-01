@@ -38,13 +38,27 @@ Node.js 22+。
 
 **规则**：双方各自扫码连接自己的郊狼（设备控制本地化，对方无法直接控制你的设备）；网络只传施法/承受值/结算稀疏事件。
 
-## 云服务器部署
+## 云服务器部署（线上配置实录）
 
-1. `npm run build`，把 `dist/` 传到云服务器（Caddy/nginx 静态托管，建议 Caddy 自动 HTTPS）
-2. `server/room-server.mjs` 用 pm2 常驻：`PORT=8787 pm2 start server/room-server.mjs`
-3. **注意**：页面走 HTTPS 时浏览器禁止连 `ws://`（mixed content），对战服务器地址必须填 `wss://`——用 Caddy 反代 `/ws` 到 127.0.0.1:8787 或单独给 8787 配证书
-4. 云厂商安全组放行 443/8787
-5. 首次在对战大厅填入 `wss://你的域名:8787`，之后自动记忆
+线上地址：**https://walksunlight.com/dg/**（对战地址自动默认为 `wss://walksunlight.com/dgws`，玩家零配置）。
+
+同一台阿里云 ECS 上还跑着 nginx + Next.js 博客（占用 80/443 根路径），游戏挂在子路径 `/dg/` 下，两者互不影响：
+
+- 静态文件：`/var/www/dg/dist`（博客 nginx 的 443 server 块里 `location /dg/` alias）
+- 房间服务器：`127.0.0.1:8787`，systemd 服务 `dg-room`（开机自启、崩溃自重启）
+- Node 22 装在 `/opt/node22`（独立目录，**不碰系统 Node 18**——博客 next-server 依赖它）
+- nginx 改动：`/etc/nginx/sites-available/sunlight-blog` 443 块内追加 `/dg/` 与 `/dgws` 两段，备份为 `.bak-20261001`；安全组只需 80/443，**不放行 8787**
+- 国内网络：Node 二进制和 npm 依赖走的 npmmirror 镜像
+
+**日常更新部署**（只改了前端）：
+
+```bash
+npm run build
+scp -r dist root@<ECS_IP>:/var/www/dg/
+```
+
+改了 `server/` 才需要 `ssh root@<ECS_IP> 'systemctl restart dg-room'`。
+`server/stats.json`（排行榜数据，不入库）在服务器本地，重装前记得备份。
 
 ## 设置说明（游戏设置弹窗）
 

@@ -43,29 +43,54 @@ function saveStats(stats) {
 
 const stats = loadStats();
 
-function recordResult(winner, loser) {
+/** 战绩按游戏分类：stats[game][name]。versus 计胜负，bullet 计最高分 */
+function bucket(game) {
+  const key = game === 'bullet' ? 'bullet' : 'versus';
+  return (stats[key] ??= {});
+}
+
+function recordResult(game, winner, loser) {
+  const b = bucket(game);
   for (const [name, isWin] of [
     [winner, true],
     [loser, false],
   ]) {
     if (!name) continue;
-    const s = (stats[name] ??= { wins: 0, losses: 0 });
+    const s = (b[name] ??= { wins: 0, losses: 0, best: 0 });
     if (isWin) s.wins++;
     else s.losses++;
   }
   saveStats(stats);
-  console.log(`[stats] ${winner} beat ${loser}`);
+  console.log(`[stats:${game}] ${winner} beat ${loser}`);
 }
 
-function leaderboard(limit = 10) {
-  return Object.entries(stats)
+/** 单机最高分：只保留历史最高，同时累计场次 */
+function recordScore(game, name, score) {
+  if (!name) return;
+  const b = bucket(game);
+  const s = (b[name] ??= { wins: 0, losses: 0, best: 0 });
+  s.games = (s.games ?? 0) + 1;
+  if (score > (s.best ?? 0)) s.best = score;
+  saveStats(stats);
+  console.log(`[stats:${game}] ${name} score ${score}`);
+}
+
+function leaderboard(game, limit = 20) {
+  const b = bucket(game);
+  if (game === 'bullet') {
+    return Object.entries(b)
+      .map(([name, s]) => ({ name, best: s.best ?? 0, games: s.games ?? 0 }))
+      .sort((a, b2) => b2.best - a.best || b2.games - a.games)
+      .slice(0, limit);
+  }
+  return Object.entries(b)
     .map(([name, s]) => ({
       name,
       wins: s.wins,
       losses: s.losses,
       rate: s.wins + s.losses > 0 ? Math.round((s.wins / (s.wins + s.losses)) * 100) : 0,
     }))
-    .sort((a, b) => b.wins - a.wins || a.losses - b.losses)
+    .sort((a, b2) => b2.wins - a.wins || a.losses - b2.losses)
     .slice(0, limit);
 }
 
@@ -128,11 +153,15 @@ wss.on('connection', (ws) => {
 
     // 战绩上报与排行榜查询（与房间无关）
     if (msg.t === 'result') {
-      recordResult(String(msg.winner ?? ''), String(msg.loser ?? ''));
+      recordResult(String(msg.game ?? 'versus'), String(msg.winner ?? ''), String(msg.loser ?? ''));
+      return;
+    }
+    if (msg.t === 'score') {
+      recordScore(String(msg.game ?? 'bullet'), String(msg.name ?? ''), Number(msg.score) || 0);
       return;
     }
     if (msg.t === 'board') {
-      send(ws, { t: 'board', list: leaderboard() });
+      send(ws, { t: 'board', game: String(msg.game ?? 'versus'), list: leaderboard(String(msg.game ?? 'versus')) });
       return;
     }
 

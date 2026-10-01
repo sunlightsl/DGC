@@ -109,15 +109,22 @@ export class RoomClient {
   }
 
   /** 上报战绩（直接给服务器，不进房间转发） */
-  reportResult(winner: string, loser: string): void {
-    this.sendRaw({ t: 'result', winner, loser });
+  reportResult(game: string, winner: string, loser: string): void {
+    this.sendRaw({ t: 'result', game, winner, loser });
   }
 
-  /** 查询排行榜 */
-  requestBoard(): Promise<{ name: string; wins: number; losses: number; rate: number }[]> {
+  /** 上报单机最高分 */
+  reportScore(game: string, name: string, score: number): void {
+    this.sendRaw({ t: 'score', game, name, score });
+  }
+
+  /** 查询某游戏排行榜（前 20） */
+  requestBoard(game: 'versus' | 'bullet'): Promise<{ name: string; wins: number; losses: number; rate: number; best: number; games: number }[]> {
     const done = this.waitFor('board');
-    this.sendRaw({ t: 'board' });
-    return done.then((msg) => (Array.isArray(msg.list) ? msg.list : []) as { name: string; wins: number; losses: number; rate: number }[]);
+    this.sendRaw({ t: 'board', game });
+    return done.then(
+      (msg) => (Array.isArray(msg.list) ? msg.list : []) as { name: string; wins: number; losses: number; rate: number; best: number; games: number }[],
+    );
   }
 
   private sendRaw(payload: RoomMessage): void {

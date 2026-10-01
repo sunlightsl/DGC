@@ -58,6 +58,45 @@ export function enemyFire(bullets: Bullet[], enemy: Enemy, target: Vec2, width: 
     case 'drifter':
       spiral(bullets, enemy.pos, enemy.t, 120, 3);
       break;
+    case 'boss':
+      break; // Boss 攻击在 game.ts 的模式状态机里驱动
   }
   void width;
+}
+
+/* ===== Boss 攻击模式（参考雷霆战机） ===== */
+
+/** 模式0：环形弹幕 ×3 波，Offset 旋转制造花瓣感 */
+export function bossRadial(bullets: Bullet[], from: Vec2, burst: number, count: number, speed: number): void {
+  for (let b = 0; b < burst; b++) {
+    ring(bullets, from, count, speed, (b * Math.PI) / count);
+  }
+}
+
+/** 模式1：三向扇形追踪 ×3 连发 */
+export function bossAimedFan(bullets: Bullet[], from: Vec2, target: Vec2, waves: number, speed: number): void {
+  for (let w = 0; w < waves; w++) {
+    fan(bullets, from, target, 3 + w * 2, speed + w * 20, Math.PI / 4);
+  }
+}
+
+/** 模式2：双旋臂螺旋（持续型，每 tick 调用） */
+export function bossSpiral(bullets: Bullet[], from: Vec2, t: number, speed: number): void {
+  spiral(bullets, from, t * 1.6, speed, 4);
+}
+
+/** 模式3：交叉激光弹幕 —— 两组对向扇形 */
+export function bossCrossFan(bullets: Bullet[], from: Vec2, target: Vec2, speed: number): void {
+  const base = Math.atan2(target.y - from.y, target.x - from.x);
+  for (let i = -2; i <= 2; i++) {
+    const a1 = base + (i * Math.PI) / 14;
+    const a2 = base + Math.PI - (i * Math.PI) / 14;
+    bullets.push(makeBullet(from.x, from.y, Math.cos(a1) * speed, Math.sin(a1) * speed, false));
+    bullets.push(makeBullet(from.x, from.y, Math.cos(a2) * speed, Math.sin(a2) * speed, false));
+  }
+}
+
+/** 模式4：全屏弹雨 */
+export function bossRain(bullets: Bullet[], width: number, count: number, speed: number): void {
+  rain(bullets, width, count, speed);
 }

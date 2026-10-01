@@ -61,3 +61,20 @@ function gaugeHtml(id: string, value: number, max: number, label: string): strin
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }
+
+/**
+ * 按原始数值渲染一对 A/B 环形仪表（对战顶部面板用：
+ * 自己传本机 dm 读数，对方传网络同步来的数值）。
+ */
+export function renderGaugePair(
+  container: HTMLElement,
+  a: number,
+  b: number,
+  maxA: number,
+  maxB: number,
+): void {
+  container.innerHTML = `<div class="gauge-row">
+    ${gaugeHtml('pa', a, maxA, '通道 A (左)')}
+    ${gaugeHtml('pb', b, maxB, '通道 B (右)')}
+  </div>`;
+}

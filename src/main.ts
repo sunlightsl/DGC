@@ -11,7 +11,11 @@ import { BattleLobby } from './ui/battle-lobby';
 import { buildHelpContent } from './ui/help-panel';
 import { hideModal, setupModals, showModal } from './ui/modal';
 import { PairingScreen } from './ui/pairing-screen';
+import { ProfilePanel } from './ui/profile-panel';
 import { SettingsPanel } from './ui/settings-panel';
+import { ensureNickname } from './profile';
+
+ensureNickname(); // 首次进入自动生成临时昵称，档案页可改
 
 const dm = new DeviceManager();
 let battle: GemBattle | null = null;
@@ -26,10 +30,12 @@ panel = new SettingsPanel(settingsHost, feedback);
 const devicesModal = document.getElementById('modal-devices') as HTMLElement;
 const settingsModal = document.getElementById('modal-settings') as HTMLElement;
 const helpModal = document.getElementById('modal-help') as HTMLElement;
+const profileModal = document.getElementById('modal-profile') as HTMLElement;
 
 setupModals();
 new PairingScreen(document.getElementById('devices-body') as HTMLElement, dm);
 buildHelpContent(document.getElementById('help-body') as HTMLElement);
+new ProfilePanel(document.getElementById('profile-body') as HTMLElement);
 
 // 顶栏导航
 const openDevices = () => {
@@ -44,6 +50,7 @@ const openDevices = () => {
 document.getElementById('nav-devices')!.addEventListener('click', openDevices);
 document.getElementById('nav-settings')!.addEventListener('click', () => showModal(settingsModal));
 document.getElementById('nav-help')!.addEventListener('click', () => showModal(helpModal));
+document.getElementById('nav-profile')!.addEventListener('click', () => showModal(profileModal));
 document.getElementById('btn-conn')!.addEventListener('click', openDevices);
 
 const eStopBtn = document.getElementById('btn-e-stop') as HTMLButtonElement;
@@ -94,6 +101,10 @@ const game = new Game(canvas, input, {
   feedback,
   getSettings: () => panel.getSettingsRef(),
   getPressure: () => dm.getPressure(),
+  submitScore: (score) => {
+    const nick = ensureNickname();
+    if (roomClient.connected) roomClient.reportScore('bullet', nick, score);
+  },
 });
 game.start();
 
@@ -101,6 +112,71 @@ game.start();
 const btnStart = document.getElementById('btn-start') as HTMLButtonElement;
 const btnPause = document.getElementById('btn-pause') as HTMLButtonElement;
 const btnBomb = document.getElementById('btn-bomb') as HTMLButtonElement;
+const btnBoard = document.getElementById('btn-board') as HTMLButtonElement;
+const boardModal = document.getElementById('modal-board') as HTMLElement;
+
+btnBoard.addEventListener('click', () => {
+  showModal(boardModal);
+  void renderBoard('bullet');
+});
+
+document.getElementById('board-tab-bullet')!.addEventListener('click', () => void renderBoard('bullet'));
+document.getElementById('board-tab-versus')!.addEventListener('click', () => void renderBoard('versus'));
+
+async function renderBoard(game: 'bullet' | 'versus' = 'bullet'): Promise<void> {
+  // Tab 高亮
+  document.getElementById('board-tab-bullet')?.classList.toggle('active', game === 'bullet');
+  document.getElementById('board-tab-versus')?.classList.toggle('active', game === 'versus');
+
+  const listEl = document.getElementById('board-list')!;
+  const hintEl = document.getElementById('board-hint')!;
+  listEl.innerHTML = '<div class="hint" style="text-align:center;padding:14px">加载中…</div>';
+  hintEl.textContent = '';
+
+  const rows = await fetchBoard(game);
+  hintEl.textContent = rows.length > 0 ? `显示前 ${rows.length} 名 · 全服记录` : '';
+  const head =
+    game === 'bullet'
+      ? `<div class="board-row board-head"><span class="board-rank">#</span><span class="board-name">昵称</span><span class="board-num">最高分</span><span class="board-num">场次</span></div>`
+      : `<div class="board-row board-head"><span class="board-rank">#</span><span class="board-name">昵称</span><span class="board-num">胜 / 负</span><span class="board-num">胜率</span></div>`;
+  listEl.innerHTML =
+    head +
+    (rows.length
+      ? rows
+          .map((r, i) =>
+            game === 'bullet'
+              ? `<div class="board-row">
+                  <span class="board-rank">${i + 1}</span>
+                  <span class="board-name">${escapeHtml(r.name)}</span>
+                  <span class="board-num" style="color:var(--gold)">${r.best}</span>
+                  <span class="board-num">${r.games}</span>
+                </div>`
+              : `<div class="board-row">
+                  <span class="board-rank">${i + 1}</span>
+                  <span class="board-name">${escapeHtml(r.name)}</span>
+                  <span class="board-num">${r.wins} / ${r.losses}</span>
+                  <span class="board-num" style="color:var(--gold)">${r.rate}%</span>
+                </div>`,
+          )
+          .join('')
+      : '<div class="hint" style="text-align:center;padding:14px">暂无记录，来打第一局</div>');
+}
+
+async function fetchBoard(game: 'bullet' | 'versus'): Promise<{ name: string; wins: number; losses: number; rate: number; best: number; games: number }[]> {
+  try {
+    if (!roomClient.connected) {
+      const last = localStorage.getItem('dg-battle-server-url');
+      if (last) await roomClient.connect(last);
+    }
+    return await roomClient.requestBoard(game);
+  } catch {
+    return [];
+  }
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
 
 btnStart.addEventListener('click', () => game.startGame());
 btnPause.addEventListener('click', () => game.togglePause());
@@ -111,10 +187,12 @@ function syncControls(): void {
     btnStart.hidden = true;
     btnPause.hidden = true;
     btnBomb.hidden = true;
+    btnBoard.hidden = true;
     return;
   }
   const state = game.getState();
   btnStart.hidden = !(state === 'title' || state === 'over');
+  btnBoard.hidden = !(state === 'title' || state === 'over');
   btnPause.hidden = !(state === 'playing' || state === 'paused');
   btnPause.textContent = state === 'paused' ? '继续' : '暂停';
   btnBomb.hidden = state !== 'playing';
@@ -139,9 +217,12 @@ function syncVersusButton(): void {
 game.onStateChange(syncVersusButton);
 syncVersusButton();
 
-btnVersus.addEventListener('click', () => showModal(battleModal));
+btnVersus.addEventListener('click', () => {
+  battleLobby.refresh();
+  showModal(battleModal);
+});
 
-new BattleLobby(document.getElementById('battle-lobby-body') as HTMLElement, roomClient, (config) => {
+const battleLobby = new BattleLobby(document.getElementById('battle-lobby-body') as HTMLElement, roomClient, (config) => {
   hideModal(battleModal);
   battleRoot.hidden = false;
   canvas.style.visibility = 'hidden'; // 防止单机标题画面文字从棋盘边缘透出

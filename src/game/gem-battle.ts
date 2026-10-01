@@ -4,7 +4,9 @@ import type { FeedbackEngine } from '../devices/feedback-engine';
 import type { RoomClient, RoomMessage } from '../net/room-client';
 import { COYOTE_WAVEFORM_OPTIONS, type Settings } from '../settings';
 import { drawIcon, ICON_BY_COLOR } from './icons';
-import { renderIntensityGauges } from '../ui/intensity-gauges';
+import { renderGaugePair } from '../ui/intensity-gauges';
+import { icoShield, icoUp } from '../ui/svg-icons';
+import { ensureNickname } from '../profile';
 
 /**
  * 宝石法术对战 v2：
@@ -116,12 +118,22 @@ export class GemBattle {
   private deps: BattleDeps;
   private canvas: HTMLCanvasElement;
 
-  /** 按对战配置设置棋盘尺寸与格子大小（格子随棋盘增大略缩） */
+  /** 按对战配置设置棋盘尺寸；格子基准加大，画布再按窗口自适应缩放 */
   private setBoardSize(size: BoardSize): void {
     const def = BOARD_SIZES.find((b) => b.key === size) ?? BOARD_SIZES[0];
     COLS = def.cols;
     ROWS = def.rows;
-    CELL = Math.max(38, Math.floor(480 / Math.max(COLS, ROWS)));
+    CELL = Math.max(46, Math.floor(560 / Math.max(COLS, ROWS)));
+  }
+
+  /** 画布按可用空间等比缩放（坐标换算已用 getBoundingClientRect，缩放不影响操作） */
+  private fitCanvas(): void {
+    const main = document.getElementById('battle-main');
+    const availW = (main?.clientWidth ?? 900) - 224;
+    const availH = window.innerHeight - 52 - 185;
+    const scale = Math.max(0.6, Math.min(availW / (COLS * CELL), availH / (ROWS * CELL), 1.25));
+        this.canvas.style.width = Math.round(COLS * CELL * scale) + 'px';
+        this.canvas.style.height = Math.round(ROWS * CELL * scale) + 'px';
   }
   private ctx: CanvasRenderingContext2D;
   private board: (Gem | null)[][] = [];
@@ -164,6 +176,7 @@ export class GemBattle {
   private punishEndsAt = 0;
   private ctlWaveform = 'random';
   private ctlIntensity = 0;
+  private oppDev = { conn: false, a: 0, b: 0, maxA: 100, maxB: 100, wave: '', intensity: 0 };
   private resultReported = false;
 
   // 再来一局
@@ -180,7 +193,7 @@ export class GemBattle {
 
   constructor(deps: BattleDeps) {
     this.deps = deps;
-    this.myName = deps.config.nickname || '无名';
+    this.myName = deps.config.nickname || ensureNickname();
     this.setBoardSize(deps.config.boardSize);
     this.targetScore = deps.config.targetScore;
     this.canvas = el('battle-canvas', HTMLCanvasElement);
@@ -189,6 +202,8 @@ export class GemBattle {
     this.ctx = this.canvas.getContext('2d')!;
     bindStaticControls();
     this.initBoard();
+    this.fitCanvas();
+    window.addEventListener('resize', () => this.fitCanvas());
     this.bindNetwork();
     this.updateHud();
     el('target-val').textContent = `目标 ${this.targetScore}`;
@@ -197,6 +212,7 @@ export class GemBattle {
 
   start(): void {
     active = this;
+    this.fitCanvas();
     this.updateReadyUi();
     this.deps.room.send({ kind: 'hello', name: this.myName, target: this.targetScore, board: this.deps.config.boardSize });
     this.lastTs = performance.now();
@@ -655,6 +671,10 @@ export class GemBattle {
 
   private bindNetwork(): void {
     this.offMsg = this.deps.room.onMessage((msg: RoomMessage) => {
+      if (msg.t === 'peerLeft') {
+        this.handlePeerLeft();
+        return;
+      }
       if (msg.t !== 'relay') return;
       this.handleCast(msg);
     });
@@ -730,7 +750,15 @@ export class GemBattle {
         this.oppScore = Number(msg.v) || 0;
         break;
       case 'devstat':
-        this.updateOppDevLine(Boolean(msg.conn), String(msg.wave ?? ''), Number(msg.intensity) || 0);
+        this.oppDev = {
+          conn: Boolean(msg.conn),
+          a: Number(msg.a) || 0,
+          b: Number(msg.b) || 0,
+          maxA: Number(msg.maxA) || 100,
+          maxB: Number(msg.maxB) || 100,
+          wave: String(msg.wave ?? ''),
+          intensity: Number(msg.intensity) || 0,
+        };
         break;
       case 'punishStop':
         if (this.phase === 'punish') {
@@ -802,7 +830,7 @@ export class GemBattle {
   private reportResult(iWon: boolean): void {
     if (this.resultReported) return;
     this.resultReported = true;
-    this.deps.room.reportResult(iWon ? this.myName : this.peerName, iWon ? this.peerName : this.myName);
+    this.deps.room.reportResult('versus', iWon ? this.myName : this.peerName, iWon ? this.peerName : this.myName);
   }
 
   // ===== 胜负与惩罚 =====
@@ -862,7 +890,7 @@ export class GemBattle {
     if (left > 0) {
       this.surrenderClicks++;
       if (this.surrenderClicks >= 3) {
-        this.showToast('🫠 轻点轻点～惩罚至少 10 秒，这是规矩');
+        this.showToast('轻点轻点～惩罚至少 10 秒，这是规矩');
       } else {
         this.showToast(`才 ${Math.ceil((performance.now() - this.punishStartAt) / 1000)} 秒，再坚持 ${Math.ceil(left / 1000)} 秒`);
       }
@@ -1013,14 +1041,21 @@ export class GemBattle {
 
   // ===== 设备状态面板 =====
 
+  /** 双方环形仪表 + 状态行；周期把本机 A/B 强度上报给对方 */
   private refreshDevPanel(): void {
     if (this.destroyed) return;
     const dm = this.deps.dm;
-    renderIntensityGauges(el('battle-gauges'), dm);
-
     const coyote =
       dm.listByType(DglabSocketDeviceType.COYOTE_030)[0] ?? dm.listByType(DglabSocketDeviceType.COYOTE_020)[0];
     const connected = dm.connected && !!coyote;
+    const a = coyote ? (dm.channelIntensity(coyote, 'A') ?? 0) : 0;
+    const b = coyote ? (dm.channelIntensity(coyote, 'B') ?? 0) : 0;
+    const maxA = coyote ? dm.channelMax(coyote, 'A') : 100;
+    const maxB = coyote ? dm.channelMax(coyote, 'B') : 100;
+
+    renderGaugePair(el('my-gauges'), connected ? a : 0, connected ? b : 0, maxA, maxB);
+    renderGaugePair(el('opp-gauges'), this.oppDev.conn ? this.oppDev.a : 0, this.oppDev.conn ? this.oppDev.b : 0, this.oppDev.maxA, this.oppDev.maxB);
+
     const power = coyote?.props.power;
     const last = this.deps.feedback.lastOutput;
     const fresh = last && Date.now() - last.at < 4000;
@@ -1028,19 +1063,23 @@ export class GemBattle {
       ? `本机郊狼：在线 · 电量 ${typeof power === 'number' ? power + '%' : '-'} · ${fresh ? `输出 ${last.label} @ ${last.intensity}` : '空闲'}`
       : '本机郊狼：未连接';
 
-    // 周期上报本机状态给对方
-    this.deps.room.send({
-      kind: 'devstat',
-      conn: connected,
-      wave: fresh ? last.label : '',
-      intensity: fresh ? last.intensity : 0,
-    });
+    el('pb-self-name').textContent = `我方 · ${this.myName}`;
+    el('pb-opp-name').textContent = `对方 · ${this.peerName}`;
+
+    const od = this.oppDev;
+    el('opp-dev-line').textContent = od.conn
+      ? `对方郊狼：在线${od.wave ? ` · 输出 ${od.wave} @ ${od.intensity}` : ' · 空闲'}`
+      : `对方郊狼：未连接`;
+
+    this.deps.room.send({ kind: 'devstat', conn: connected, a, b, maxA, maxB, wave: fresh ? last!.label : '', intensity: fresh ? last!.intensity : 0 });
   }
 
-  private updateOppDevLine(conn: boolean, wave: string, intensity: number): void {
-    el('opp-dev-line').textContent = conn
-      ? `对方郊狼：在线${wave ? ` · 正输出 ${wave} @ ${intensity}` : ' · 空闲'}`
-      : `对方郊狼：未连接（${this.peerName}）`;
+  /** 对方断线：全屏提示 → 自动退回标题 */
+  private handlePeerLeft(): void {
+    if (this.destroyed || this.exited || this.phase === 'done') return;
+    this.showToast('对方已断开连接，即将退出');
+    this.deps.feedback.stopPunishment();
+    setTimeout(() => this.exit(), 2000);
   }
 
   // ===== HUD =====
@@ -1126,10 +1165,10 @@ export class GemBattle {
     el('mult-val').textContent = `倍率 ×${this.mult.toFixed(1)}`;
 
     const parts: string[] = [];
-    if (this.shield > 0) parts.push(`🛡 护盾 ${this.shield}`);
+    if (this.shield > 0) parts.push(`<span class=\"buff-ico\">${icoShield()}</span>护盾 ${this.shield}`);
     const ampLeft = Math.ceil((this.ampUntil - performance.now()) / 1000);
-    if (ampLeft > 0) parts.push(`⬆ 受伤+${this.ampPct}% ${ampLeft}s`);
-    el('buff-line').textContent = parts.join('　');
+    if (ampLeft > 0) parts.push(`<span class=\"buff-ico\">${icoUp()}</span>受伤 +${this.ampPct}% · ${ampLeft}s`);
+    el('buff-line').innerHTML = parts.join('　');
 
     const frozen = performance.now() < this.frozenUntil;
     el('freeze-overlay').hidden = !frozen;

@@ -1,8 +1,8 @@
 import type { RoomClient } from '../net/room-client';
 import { BOARD_SIZES, type BoardSize } from '../game/gem-battle';
+import { ensureNickname, getNickname, setNickname } from '../profile';
 
 const SERVER_KEY = 'dg-battle-server-url';
-const NICK_KEY = 'dg-battle-nickname';
 const TARGET_KEY = 'dg-battle-target';
 const BOARD_KEY = 'dg-battle-board';
 
@@ -30,8 +30,8 @@ export class BattleLobby {
   }
 
   private build(): void {
-    const lastServer = localStorage.getItem(SERVER_KEY) ?? '';
-    const lastNick = localStorage.getItem(NICK_KEY) ?? '';
+    const lastServer = defaultServerUrl(localStorage.getItem(SERVER_KEY) ?? '');
+    const lastNick = getNickname();
     const lastTarget = localStorage.getItem(TARGET_KEY) ?? '5000';
     const lastBoard = (localStorage.getItem(BOARD_KEY) ?? '8x8') as BoardSize;
     this.root.innerHTML = `
@@ -61,24 +61,34 @@ export class BattleLobby {
           ).join('')}
         </select>
       </div>
-      <div class="row" style="justify-content:center; gap:12px">
-        <button class="btn-gold" id="lobby-create">创建房间</button>
-        <span style="color:var(--dim)">或</span>
-        <input type="text" id="lobby-code-input" placeholder="房间码" maxlength="4"
-          style="width:90px; text-transform:uppercase; letter-spacing:4px; text-align:center" />
-        <button class="btn" id="lobby-join">加 入</button>
+
+      <div class="lobby-divider"></div>
+
+      <div class="lobby-block">
+        <button class="btn-gold btn-lg" id="lobby-create" style="width:100%">创建房间</button>
+        <div class="lobby-code" id="lobby-code" hidden></div>
+        <div class="lobby-status" id="lobby-status">先连接服务器</div>
       </div>
-      <div class="lobby-code" id="lobby-code" hidden></div>
-      <div class="lobby-status" id="lobby-status">先连接服务器</div>
-      <div class="row" style="justify-content:center">
-        <button class="btn" id="lobby-board">查看排行榜</button>
+
+      <div class="lobby-divider"></div>
+
+      <div class="lobby-block">
+        <div class="row" style="margin:0">
+          <input type="text" id="lobby-code-input" placeholder="输入 4 位房间码加入" maxlength="4"
+            style="flex:1; text-transform:uppercase; letter-spacing:6px; text-align:center" />
+          <button class="btn btn-lg" id="lobby-join">加入房间</button>
+        </div>
       </div>
-      <div id="lobby-board-list"></div>
     `;
 
     this.root.querySelector<HTMLButtonElement>('#lobby-create')!.addEventListener('click', () => this.create());
     this.root.querySelector<HTMLButtonElement>('#lobby-join')!.addEventListener('click', () => this.join());
-    this.root.querySelector<HTMLButtonElement>('#lobby-board')!.addEventListener('click', () => this.showBoard());
+  }
+
+  /** 弹窗每次打开时调用：档案页可能刚改过昵称，同步到大厅输入框 */
+  refresh(): void {
+    const input = this.root.querySelector<HTMLInputElement>('#lobby-nick');
+    if (input) input.value = getNickname();
   }
 
   private status(text: string): void {
@@ -87,10 +97,10 @@ export class BattleLobby {
   }
 
   private getConfig(): LobbyConfig {
-    const nick = this.root.querySelector<HTMLInputElement>('#lobby-nick')!.value.trim() || '无名';
+    const nick = this.root.querySelector<HTMLInputElement>('#lobby-nick')!.value.trim() || ensureNickname();
     const target = Number(this.root.querySelector<HTMLSelectElement>('#lobby-target')!.value) || 5000;
     const boardSize = (this.root.querySelector<HTMLSelectElement>('#lobby-board-size')!.value || '8x8') as BoardSize;
-    localStorage.setItem(NICK_KEY, nick);
+    setNickname(nick);
     localStorage.setItem(TARGET_KEY, String(target));
     localStorage.setItem(BOARD_KEY, boardSize);
     return { nickname: nick, targetScore: target, boardSize };
@@ -158,35 +168,15 @@ export class BattleLobby {
     }
   }
 
-  private async showBoard(): Promise<void> {
-    if (!(await this.ensureConnected())) return;
-    const listEl = this.root.querySelector<HTMLElement>('#lobby-board-list')!;
-    listEl.innerHTML = '<div class="hint" style="text-align:center">加载中…</div>';
-    try {
-      const board = await this.room.requestBoard();
-      if (board.length === 0) {
-        listEl.innerHTML = '<div class="hint" style="text-align:center">暂无战绩，快来打第一局！</div>';
-        return;
-      }
-      listEl.innerHTML =
-        `<div class="board-table">` +
-        board
-          .map(
-            (r, i) => `<div class="board-row">
-              <span class="board-rank">${i + 1}</span>
-              <span class="board-name">${escapeHtml(r.name)}</span>
-              <span class="board-num">${r.wins}胜 ${r.losses}负</span>
-              <span class="board-num" style="color:var(--gold)">胜率 ${r.rate}%</span>
-            </div>`,
-          )
-          .join('') +
-        `</div>`;
-    } catch {
-      listEl.innerHTML = '<div class="hint" style="text-align:center">排行榜加载失败</div>';
-    }
-  }
 }
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
+/** 已记忆的地址优先；HTTPS 部署时默认与页面同域的 /ws 反代，零配置直接玩；本地开发留空手动填 */
+function defaultServerUrl(saved: string): string {
+  if (saved) return saved;
+  if (location.protocol === 'https:') return `wss://${location.host}/dgws`;
+  return '';
 }

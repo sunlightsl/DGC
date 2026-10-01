@@ -1,8 +1,10 @@
 import { COYOTE_WAVEFORM, COYOTE_WAVEFORMS, OVC_WAVEFORM, OVC_WAVEFORMS } from 'dglab-kit';
 
 export interface Settings {
-  /** 全局强度倍率 0.1 - 1 */
+  /** 全局强度倍率 0.1 - 2 */
   intensityScale: number;
+  /** 系统强度上限：所有输出的第二道钳制（1-100，100 为不可逾越的安全红线） */
+  systemCap: number;
   coyoteEnabled: boolean;
   ovcEnabled: boolean;
   bmtrEnabled: boolean;
@@ -40,6 +42,7 @@ const STORAGE_KEY = 'dg-game-settings-v2';
 
 export const DEFAULT_SETTINGS: Settings = {
   intensityScale: 0.3,
+  systemCap: 50,
   coyoteEnabled: true,
   ovcEnabled: true,
   bmtrEnabled: true,
@@ -119,6 +122,7 @@ export function loadSettings(): Settings {
     merged.punishWaveforms = sanitizePool(merged.punishWaveforms, COYOTE_WAVEFORMS, DEFAULT_SETTINGS.punishWaveforms);
 
     merged.intensityScale = clampNum(merged.intensityScale, 0.1, 2, DEFAULT_SETTINGS.intensityScale);
+    merged.systemCap = clampNum(merged.systemCap, 1, 100, DEFAULT_SETTINGS.systemCap);
     merged.hitIntensityMin = clampNum(merged.hitIntensityMin, 1, 100, DEFAULT_SETTINGS.hitIntensityMin);
     merged.hitIntensityMax = clampNum(merged.hitIntensityMax, 1, 100, DEFAULT_SETTINGS.hitIntensityMax);
     if (merged.hitIntensityMin > merged.hitIntensityMax) {

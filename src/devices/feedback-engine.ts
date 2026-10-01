@@ -17,8 +17,11 @@ export interface LastOutput {
 type CoyoteKey = keyof typeof COYOTE_WAVEFORMS;
 type OvcKey = keyof typeof OVC_WAVEFORMS;
 
-/** 系统级绝对强度上限：任何输出（含惩罚、倍率200%）都不可超过 */
-export const SYSTEM_INTENSITY_CAP = 50;
+/**
+ * 安全红线：无论设置怎么调都不可超过 100（DG-LAB 官方强度上限），
+ * 用户可在「游戏设置」把系统强度上限调低到 100 以下的任意值。
+ */
+export const HARD_INTENSITY_CAP = 100;
 
 const LOW_HP_WARN_RAW = 10;
 const DEATH_BURST_RAW = 45;
@@ -34,7 +37,7 @@ function randInt(min: number, max: number): number {
 /**
  * 反馈引擎：把游戏事件翻译成设备操作。
  * 波形从设置的多选池随机抽取，强度在 [min,max] 范围随机，
- * 再经过 设置倍率 × 设备实际上限 的双重钳制；
+ * 再经过 全局倍率 × 系统上限 × 安全红线(100) × 设备实际上限 的多重钳制；
  * 受击类反馈用 immediate 顶掉同通道旧任务，避免队列堆积。
  *
  * 通道约定：事件反馈走设置的主通道；战败惩罚固定走另一通道，互不干扰。
@@ -129,12 +132,12 @@ export class FeedbackEngine {
   }
 
   /**
-   * 唯一强度出口：实际输出 = min(原始值 × 全局倍率, 系统绝对上限, APP 舒适上限)
+   * 唯一强度出口：实际输出 = min(原始值 × 全局倍率, 用户设置的上限, 安全红线 100, APP 舒适上限)
    * 公式刻意简化，保证用户怎么调都越不过安全边界。
    */
   private clamped(device: TrackedDevice, channel: 'A' | 'B', raw: number, s: Settings): number {
     const scaled = Math.round(raw * s.intensityScale);
-    return Math.max(0, Math.min(scaled, SYSTEM_INTENSITY_CAP, this.dm.channelMax(device, channel)));
+    return Math.max(0, Math.min(scaled, s.systemCap, HARD_INTENSITY_CAP, this.dm.channelMax(device, channel)));
   }
 
   /** 发一波：临时强度 + 波形，immediate 顶掉同通道旧任务 */

@@ -9,10 +9,12 @@ export interface Bullet {
   r: number;
   /** 自机弹或敌弹 */
   friendly: boolean;
+  /** 命中伤害（自机弹用，默认 1） */
+  dmg: number;
   dead: boolean;
 }
 
-export type EnemyKind = 'drifter' | 'turret' | 'aimer';
+export type EnemyKind = 'drifter' | 'turret' | 'aimer' | 'boss';
 
 export interface Enemy {
   pos: Vec2;
@@ -25,6 +27,9 @@ export interface Enemy {
   t: number;
   fireTimer: number;
   seed: number;
+  /** Boss 专用：当前攻击模式与模式计时 */
+  attackMode?: number;
+  modeTimer?: number;
   dead: boolean;
 }
 
@@ -37,8 +42,20 @@ export interface Particle {
   size: number;
 }
 
-export function makeBullet(x: number, y: number, vx: number, vy: number, friendly: boolean, r = 4): Bullet {
-  return { pos: { x, y }, vel: { x: vx, y: vy }, r, friendly, dead: false };
+/** Boss 死亡掉落的核心果实：进入拾取半径开始吟唱累积进度，完成才升级 */
+export interface Pickup {
+  pos: Vec2;
+  /** 吟唱进度 0-1，离开范围会衰减 */
+  progress: number;
+  /** 拾取范围内持续电击的触发冷却 */
+  shockCd: number;
+  /** 存活时间（动画用） */
+  t: number;
+  done: boolean;
+}
+
+export function makeBullet(x: number, y: number, vx: number, vy: number, friendly: boolean, r = 4, dmg = 1): Bullet {
+  return { pos: { x, y }, vel: { x: vx, y: vy }, r, friendly, dmg, dead: false };
 }
 
 export function makeExplosion(particles: Particle[], x: number, y: number, color: string, count = 14): void {

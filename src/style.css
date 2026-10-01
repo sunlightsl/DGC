@@ -125,6 +125,10 @@ button { font: inherit; cursor: pointer; }
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
   font-size: var(--fs-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 .btn:hover:not(:disabled) { border-color: var(--gold-dim); color: var(--gold); }
 .btn:disabled { opacity: 0.4; cursor: default; }
@@ -149,6 +153,10 @@ button { font: inherit; cursor: pointer; }
   border-radius: var(--r-sm);
   font-weight: bold;
   letter-spacing: 1px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 .btn-gold:hover:not(:disabled) { background: #ffd97e; }
 .btn-gold:disabled { opacity: 0.45; cursor: default; }
@@ -162,6 +170,10 @@ button { font: inherit; cursor: pointer; }
   border: 1px solid var(--danger);
   border-radius: var(--r-sm);
   font-weight: bold;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 .btn-red:hover:not(:disabled) { background: var(--danger); color: #fff; }
 .btn-red:disabled { opacity: 0.45; cursor: default; }
@@ -174,8 +186,13 @@ button { font: inherit; cursor: pointer; }
   color: var(--dim);
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 .btn-ghost:hover { color: var(--text); border-color: var(--dim); }
+.btn-ghost.btn-lg { height: var(--btn-lg-h); font-size: var(--fs-lg); }
 
 /* ===== 游戏区 ===== */
 #game-wrap {
@@ -193,37 +210,19 @@ button { font: inherit; cursor: pointer; }
   display: block;
 }
 
-/* ===== 标题界面：双游戏入口卡片 ===== */
+/* ===== 标题界面：竖排游戏入口 ===== */
 #game-entries {
   position: absolute;
   left: 50%;
-  top: 70%;
+  top: 62%;
   transform: translate(-50%, -50%);
   display: flex;
-  gap: var(--sp-lg);
+  flex-direction: column;
+  gap: var(--sp-md);
+  width: 260px;
 }
-.game-card {
-  pointer-events: auto;
-  width: 200px;
-  padding: var(--sp-lg);
-  background: rgba(23, 26, 33, 0.88);
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  color: var(--text);
-  cursor: pointer;
-  text-align: center;
-  backdrop-filter: blur(4px);
-  transition: border-color 0.15s, transform 0.1s;
-  font: inherit;
-}
-.game-card:hover { border-color: var(--gold); transform: translateY(-2px); }
-.game-card:active { transform: translateY(0); }
-.game-card .gc-ico { font-size: 34px; line-height: 1; }
-.game-card .gc-name { font-size: var(--fs-lg); font-weight: bold; margin: var(--sp-sm) 0 var(--sp-xs); letter-spacing: 2px; }
-.game-card .gc-desc { font-size: var(--fs-sm); color: var(--dim); line-height: 1.5; }
-.game-card.primary { border-color: var(--gold-dim); }
-.game-card.primary .gc-name { color: var(--gold); }
-.game-card[hidden] { display: none; }
+.entry-btn { width: 100%; pointer-events: auto; }
+.entry-btn[hidden] { display: none; }
 
 /* 屏幕控制按钮（游戏中悬浮） */
 #screen-controls {
@@ -363,6 +362,13 @@ select, input[type="number"], input[type="text"] {
   border-radius: 6px;
   padding: 5px 8px;
   font: inherit;
+  line-height: 1;
+}
+/* 房间码输入框与 lg 按钮等高 */
+#lobby-code-input {
+  height: var(--btn-lg-h);
+  font-size: var(--fs-lg);
+  font-weight: bold;
 }
 select:focus, input:focus { outline: none; border-color: var(--gold-dim); }
 
@@ -566,6 +572,12 @@ input[type="text"] { flex: 1 1 auto; min-width: 0; }
 
 /* ===== 对战大厅 ===== */
 .lobby-row { margin: 10px 0; }
+.lobby-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 14px 0;
+}
+.lobby-block { margin: 4px 0; }
 .lobby-code {
   font-size: 36px;
   font-weight: bold;
@@ -575,19 +587,61 @@ input[type="text"] { flex: 1 1 auto; min-width: 0; }
   font-family: Consolas, monospace;
   margin: 12px 0;
 }
-.lobby-status { text-align: center; color: var(--dim); min-height: 22px; }
+.lobby-status { text-align: center; color: var(--dim); min-height: 22px; margin-top: 8px; }
 
 /* ===== 宝石对战 HUD ===== */
 #battle-root {
   position: absolute;
   inset: 0;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 18px;
+  gap: 10px;
+  padding: 8px 14px;
   z-index: 4;
 }
 #battle-root[hidden] { display: none; }
+
+/* 顶部：自己（左） vs 对方（右）状态带 */
+#battle-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 100%;
+}
+#battle-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  width: 100%;
+}
+.player-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 300px;
+}
+#pb-opp { align-items: flex-end; text-align: right; }
+.pb-name { font-size: var(--fs-md); font-weight: bold; color: var(--gold); letter-spacing: 1px; }
+#pb-opp .pb-name { color: var(--danger); }
+.pb-gauges .gauge-row { gap: 12px; margin: 0; }
+.pb-gauges .gauge svg { width: 104px; height: 104px; }
+.pb-gauges .gauge-value { font-size: 26px; }
+.pb-gauges .gauge-max { font-size: 10px; }
+.pb-gauges .gauge-label { font-size: var(--fs-sm); color: var(--dim); margin-top: 2px; }
+.pb-score { width: 100%; }
+.pb-score .suffer-label { font-size: var(--fs-sm); }
+.pb-score .suffer-bar { height: 12px; }
+.player-block .dev-line { font-size: var(--fs-sm); }
+
+/* 中部：大棋盘 + 侧栏 */
+#battle-main {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
 #battle-canvas {
   background: #0a0d14;
   border: 1px solid var(--border);
@@ -595,10 +649,11 @@ input[type="text"] { flex: 1 1 auto; min-width: 0; }
   cursor: pointer;
 }
 #battle-side {
-  width: 220px;
+  width: 210px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
+  flex: 0 0 auto;
 }
 .suffer-bar {
   height: 20px;
@@ -645,20 +700,22 @@ input[type="text"] { flex: 1 1 auto; min-width: 0; }
 .weight-row .val { width: 24px; text-align: right; font-size: 12px; color: var(--gold); font-variant-numeric: tabular-nums; }
 
 /* 排行榜 */
-.board-table { margin-top: 8px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.board-table { margin-top: 8px; border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; max-height: 420px; overflow-y: auto; }
 .board-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 12px;
+  padding: 7px 12px;
   font-size: 13px;
   border-bottom: 1px solid var(--border);
   background: var(--card-2);
 }
 .board-row:last-child { border-bottom: none; }
-.board-rank { width: 22px; color: var(--gold); font-weight: bold; }
+.board-row.board-head { background: #12151d; color: var(--dim); font-size: 11px; position: sticky; top: 0; }
+.board-rank { width: 26px; color: var(--gold); font-weight: bold; font-variant-numeric: tabular-nums; }
 .board-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.board-num { color: var(--dim); font-variant-numeric: tabular-nums; }
+.board-num { color: var(--dim); font-variant-numeric: tabular-nums; min-width: 56px; text-align: right; }
+.board-tab { font-size: 13px; padding: 8px 16px; }
 .spell-btn {
   width: 100%;
   display: flex;
@@ -696,7 +753,13 @@ input[type="text"] { flex: 1 1 auto; min-width: 0; }
   font-size: 13px;
   font-weight: bold;
 }
-.buff-line { font-size: 12px; color: var(--ok); min-height: 16px; text-align: center; }
+.ovt-ico { display: inline-flex; align-items: center; gap: 8px; }
+.ovt-ico svg { flex: 0 0 auto; }
+.buff-line { font-size: var(--fs-sm); color: var(--ok); min-height: 16px; text-align: center; }
+.buff-ico { display: inline-flex; vertical-align: -2px; margin-right: 2px; }
+.gc-ico { line-height: 1; display: flex; justify-content: center; }
+.gc-ico.gc-gold { color: var(--gold); }
+.gc-ico.gc-blue { color: var(--accent, #4cc2ff); }
 
 #freeze-overlay {
   position: absolute;

@@ -31,8 +31,9 @@ interface Section {
 const SECTIONS: Section[] = [
   {
     title: '反馈强度',
-    note: '所有输出 = 原始值 × 全局倍率，但绝不超过系统上限 50 与 APP 内设备安全上限，放心调整。',
+    note: '所有输出 = 原始值 × 全局倍率，再被「系统强度上限」与 APP 内设备安全上限钳制。上限可调低自保，100 为不可逾越的安全红线。',
     rows: [
+      { kind: 'range', key: 'systemCap', label: '系统强度上限', min: 1, max: 100, step: 1 },
       { kind: 'range', key: 'intensityScale', label: '全局倍率', min: 0.1, max: 2, step: 0.05, format: (v) => `${Math.round(v * 100)}%` },
       { kind: 'number', key: 'hitDurationMs', label: '受击时长(ms)', min: 100, max: 5000, step: 100 },
     ],
