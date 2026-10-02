@@ -12,6 +12,9 @@ let role: 1 | 2 = 1;
 let channel: VoiceChannel | null = null;
 let built = false;
 
+/** 语音功能总开关：P2P 直连可靠性仍在多网络环境验证，验证通过前保持 false（隐藏入口，不给人用） */
+const VOICE_ENABLED = false;
+
 const STATE_TEXT: Record<VoiceState, string> = {
   idle: '',
   'wait-key': '交换语音密钥…',
@@ -26,6 +29,7 @@ function el<T extends HTMLElement = HTMLElement>(id: string, _ctor?: new () => T
 }
 
 export function initVoice(r: RoomClient, myRole: 1 | 2): void {
+  if (!VOICE_ENABLED) return; // 功能未开放：不创建按钮与面板
   room = r;
   role = myRole;
   buildDom();
