@@ -445,24 +445,6 @@ export class Game {
       }
     }
 
-    // Boss 被消灭：每只清弹幕 + 大奖赏 + 原地掉一颗核心果实
-    const deadBosses = this.enemies.filter((e) => e.kind === 'boss' && e.dead);
-    if (deadBosses.length > 0) {
-      for (const b of deadBosses) {
-        this.score += 1000;
-        this.bombs = Math.min(MAX_BOMBS, this.bombs + 2);
-        this.pickups.push({ pos: { x: b.pos.x, y: Math.min(b.pos.y, H - 90) }, progress: 0, shockCd: 0, t: 0, done: false });
-        makeExplosion(this.particles, b.pos.x, b.pos.y, '#f0c866', 40);
-      }
-      for (const bl of this.bullets) {
-        if (!bl.friendly) {
-          bl.dead = true;
-          makeExplosion(this.particles, bl.pos.x, bl.pos.y, '#4cc2ff', 3);
-        }
-      }
-      this.deps.feedback.fire('bomb');
-    }
-
     // 自机弹命中敌机
     for (const b of this.bullets) {
       if (!b.friendly || b.dead) continue;
@@ -503,6 +485,24 @@ export class Game {
           break;
         }
       }
+    }
+
+    // Boss 被消灭（所有伤害源结算之后、移除尸体之前）：清弹幕 + 大奖赏 + 原地掉一颗核心果实
+    const deadBosses = this.enemies.filter((e) => e.kind === 'boss' && e.dead);
+    if (deadBosses.length > 0) {
+      for (const b of deadBosses) {
+        this.score += 1000;
+        this.bombs = Math.min(MAX_BOMBS, this.bombs + 2);
+        this.pickups.push({ pos: { x: b.pos.x, y: Math.min(b.pos.y, H - 90) }, progress: 0, shockCd: 0, t: 0, done: false });
+        makeExplosion(this.particles, b.pos.x, b.pos.y, '#f0c866', 40);
+      }
+      for (const bl of this.bullets) {
+        if (!bl.friendly) {
+          bl.dead = true;
+          makeExplosion(this.particles, bl.pos.x, bl.pos.y, '#4cc2ff', 3);
+        }
+      }
+      this.deps.feedback.fire('bomb');
     }
 
     this.enemies = this.enemies.filter((e) => !e.dead);
@@ -632,8 +632,9 @@ export class Game {
   }
 
   private volleyAngles(): number[] {
-    if (this.hasUpgrade('penta')) return [-70, -35, 0, 35, 70];
-    if (this.hasUpgrade('triple')) return [-40, 0, 40];
+    // 角度刻意收窄：攻击高度集中在正前方，侧弹仅做小幅覆盖
+    if (this.hasUpgrade('penta')) return [-30, -15, 0, 15, 30];
+    if (this.hasUpgrade('triple')) return [-15, 0, 15];
     return [0];
   }
 
