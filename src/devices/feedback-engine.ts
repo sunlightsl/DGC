@@ -3,6 +3,7 @@ import type { Settings } from '../settings';
 import type { DeviceManager } from './device-manager';
 import type { TrackedDevice } from './types';
 import { emergencyStop } from './safety';
+import { playSfx } from '../audio/sfx';
 
 export type FeedbackEvent = 'hit' | 'baseHit' | 'lowHpOn' | 'lowHpOff' | 'death' | 'bomb';
 
@@ -164,6 +165,7 @@ export class FeedbackEngine {
   /** 普通受击：hitWaveforms 池随机 + [hitIntensityMin,Max] 随机 */
   private hit(s: Settings): void {
     if (!this.dm.connected) return;
+    playSfx('hit');
     const coyote = this.coyote();
     if (coyote && s.coyoteEnabled) {
       const key = pick(s.hitWaveforms) as CoyoteKey;
@@ -206,6 +208,7 @@ export class FeedbackEngine {
   /** 对战中被电击：强度由对方花费决定（倍率前原始值），波形从电击池随机 */
   shock(intensityRaw: number): void {
     if (this.stopped) return;
+    playSfx('shock');
     const s = this.getSettings();
     if (!this.dm.connected) return;
     const key = pick(s.baseHitWaveforms) as CoyoteKey;

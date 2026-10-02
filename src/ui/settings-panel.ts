@@ -1,4 +1,5 @@
 import type { FeedbackEngine, FeedbackEvent } from '../devices/feedback-engine';
+import { configureSfx } from '../audio/sfx';
 import {
   COYOTE_WAVEFORM_OPTIONS,
   OVC_WAVEFORM_OPTIONS,
@@ -8,7 +9,7 @@ import {
 } from '../settings';
 
 interface RowDef {
-  kind: 'range' | 'switch' | 'select' | 'number' | 'chips' | 'dual' | 'weights';
+  kind: 'range' | 'switch' | 'select' | 'number' | 'chips' | 'dual';
   key: keyof Settings;
   label: string;
   min?: number;
@@ -19,80 +20,97 @@ interface RowDef {
   format?: (v: number) => string;
 }
 
-const WEIGHT_COLORS = ['#ff4c5e', '#4cc2ff', '#4cff9d', '#f0c866', '#b06cff', '#ff9d4c'];
-const WEIGHT_NAMES = ['电击', '护盾', '净化', '时停', '倍率', '增幅'];
-
 interface Section {
   title: string;
   note?: string;
   rows: RowDef[];
 }
 
-const SECTIONS: Section[] = [
-  {
-    title: '反馈强度',
-    note: '所有输出 = 原始值 × 全局倍率，再被「系统强度上限」与 APP 内设备安全上限钳制。上限可调低自保，100 为不可逾越的安全红线。',
-    rows: [
-      { kind: 'range', key: 'systemCap', label: '系统强度上限', min: 1, max: 100, step: 1 },
-      { kind: 'range', key: 'intensityScale', label: '全局倍率', min: 0.1, max: 2, step: 0.05, format: (v) => `${Math.round(v * 100)}%` },
-      { kind: 'number', key: 'hitDurationMs', label: '受击时长(ms)', min: 100, max: 5000, step: 100 },
-    ],
-  },
-  {
-    title: '郊狼（受击反馈）',
-    note: '被电击/受击时随机从池里抽一个波形、在强度范围内随机取值。',
-    rows: [
-      { kind: 'switch', key: 'coyoteEnabled', label: '启用反馈' },
-      { kind: 'select', key: 'coyoteChannel', label: '主反馈通道', options: [
-        { key: 'A', label: 'A 通道' },
-        { key: 'B', label: 'B 通道' },
-      ] },
-      { kind: 'chips', key: 'hitWaveforms', label: '受击波形池', optionRecord: 'coyote' },
-      { kind: 'dual', key: 'hitIntensityMin', label: '受击强度', min: 1, max: 100 },
-    ],
-  },
-  {
-    title: '负鼠（振动反馈）',
-    note: '受击时振动，炸弹触发奖励振动。',
-    rows: [
-      { kind: 'switch', key: 'ovcEnabled', label: '启用反馈' },
-      { kind: 'chips', key: 'ovcHitWaveforms', label: '受击波形池', optionRecord: 'ovc' },
-    ],
-  },
-  {
-    title: '电击/基地受击（大反馈）',
-    note: '对战中被对方电击、或基地受击时的重反馈。',
-    rows: [
-      { kind: 'chips', key: 'baseHitWaveforms', label: '电击波形池', optionRecord: 'coyote' },
-      { kind: 'dual', key: 'baseHitIntensityMin', label: '电击强度', min: 1, max: 100 },
-      { kind: 'number', key: 'baseHitDurationMs', label: '电击时长(ms)', min: 100, max: 8000, step: 100 },
-    ],
-  },
-  {
-    title: '战败惩罚',
-    note: '战败后持续输出：每轮随机池波形 + 范围内随机强度，强度上限随轮数升级，点击「认输」才停止。',
-    rows: [
-      { kind: 'chips', key: 'punishWaveforms', label: '惩罚波形池', optionRecord: 'coyote' },
-      { kind: 'dual', key: 'punishIntensityMin', label: '惩罚强度', min: 1, max: 100 },
-      { kind: 'number', key: 'punishStepSec', label: '升级间隔(秒)', min: 1, max: 30 },
-      { kind: 'number', key: 'punishMaxSec', label: '惩罚上限(秒)', min: 30, max: 600, step: 10 },
-    ],
-  },
-  {
-    title: '颜色比例（对战）',
-    note: '各颜色宝石的刷出权重（0-10）。防御色（蓝/绿）权重低，痛苦才够持续。',
-    rows: [{ kind: 'weights', key: 'colorWeights', label: '' }],
-  },
-  {
-    title: '灵猫（边控传感器）',
-    note: '游戏中捏压灵猫触发炸弹，清空全屏敌弹。',
-    rows: [
-      { kind: 'switch', key: 'bmtrEnabled', label: '炸弹输入' },
-      { kind: 'number', key: 'bmtrThreshold', label: '触发阈值', min: 1, max: 100 },
-      { kind: 'number', key: 'bmtrCooldownMs', label: '冷却(ms)', min: 300, max: 10000, step: 100 },
-    ],
-  },
-];
+const DEVICE_TABS = [
+  { key: 'base', label: '基础' },
+  { key: 'coyote', label: '郊狼' },
+  { key: 'ovc', label: '负鼠' },
+  { key: 'bmtr', label: '灵猫' },
+] as const;
+
+type DeviceTab = (typeof DEVICE_TABS)[number]['key'];
+
+const SECTIONS: Record<DeviceTab, Section[]> = {
+  base: [
+    {
+      title: '反馈强度',
+      note: '所有输出 = 原始值 × 全局倍率，再被「系统强度上限」与 APP 内设备安全上限钳制。上限可调低自保，100 为不可逾越的安全红线。',
+      rows: [
+        { kind: 'range', key: 'systemCap', label: '系统强度上限', min: 1, max: 100, step: 1 },
+        { kind: 'range', key: 'intensityScale', label: '全局倍率', min: 0.1, max: 2, step: 0.05, format: (v) => `${Math.round(v * 100)}%` },
+        { kind: 'number', key: 'hitDurationMs', label: '受击时长(ms)', min: 100, max: 5000, step: 100 },
+      ],
+    },
+    {
+      title: '音效',
+      note: '游戏内事件的合成音效（扬声器播放，与设备反馈互不冲突）。',
+      rows: [
+        { kind: 'switch', key: 'sfxEnabled', label: '启用音效' },
+        { kind: 'range', key: 'sfxVolume', label: '音量', min: 0, max: 1, step: 0.05, format: (v) => `${Math.round(v * 100)}%` },
+      ],
+    },
+  ],
+  coyote: [
+    {
+      title: '郊狼（受击反馈）',
+      note: '被电击/受击时随机从池里抽一个波形、在强度范围内随机取值。',
+      rows: [
+        { kind: 'switch', key: 'coyoteEnabled', label: '启用反馈' },
+        { kind: 'select', key: 'coyoteChannel', label: '主反馈通道', options: [
+          { key: 'A', label: 'A 通道' },
+          { key: 'B', label: 'B 通道' },
+        ] },
+        { kind: 'chips', key: 'hitWaveforms', label: '受击波形池', optionRecord: 'coyote' },
+        { kind: 'dual', key: 'hitIntensityMin', label: '受击强度', min: 1, max: 100 },
+      ],
+    },
+    {
+      title: '电击/基地受击（大反馈）',
+      note: '对战中被对方电击、或基地受击时的重反馈。',
+      rows: [
+        { kind: 'chips', key: 'baseHitWaveforms', label: '电击波形池', optionRecord: 'coyote' },
+        { kind: 'dual', key: 'baseHitIntensityMin', label: '电击强度', min: 1, max: 100 },
+        { kind: 'number', key: 'baseHitDurationMs', label: '电击时长(ms)', min: 100, max: 8000, step: 100 },
+      ],
+    },
+    {
+      title: '战败惩罚',
+      note: '战败后持续输出：每轮随机池波形 + 范围内随机强度，强度上限随轮数升级，点击「认输」才停止。',
+      rows: [
+        { kind: 'chips', key: 'punishWaveforms', label: '惩罚波形池', optionRecord: 'coyote' },
+        { kind: 'dual', key: 'punishIntensityMin', label: '惩罚强度', min: 1, max: 100 },
+        { kind: 'number', key: 'punishStepSec', label: '升级间隔(秒)', min: 1, max: 30 },
+        { kind: 'number', key: 'punishMaxSec', label: '惩罚上限(秒)', min: 30, max: 600, step: 10 },
+      ],
+    },
+  ],
+  ovc: [
+    {
+      title: '负鼠（振动反馈）',
+      note: '受击时振动，炸弹触发奖励振动。',
+      rows: [
+        { kind: 'switch', key: 'ovcEnabled', label: '启用反馈' },
+        { kind: 'chips', key: 'ovcHitWaveforms', label: '受击波形池', optionRecord: 'ovc' },
+      ],
+    },
+  ],
+  bmtr: [
+    {
+      title: '灵猫（边控传感器）',
+      note: '弹幕游戏中捏压灵猫触发炸弹，清空全屏敌弹。',
+      rows: [
+        { kind: 'switch', key: 'bmtrEnabled', label: '炸弹输入' },
+        { kind: 'number', key: 'bmtrThreshold', label: '触发阈值', min: 1, max: 100 },
+        { kind: 'number', key: 'bmtrCooldownMs', label: '冷却(ms)', min: 300, max: 10000, step: 100 },
+      ],
+    },
+  ],
+};
 
 const TEST_BUTTONS: { event: FeedbackEvent; label: string }[] = [
   { event: 'hit', label: '受击' },
@@ -117,6 +135,7 @@ export class SettingsPanel {
   private root: HTMLElement;
   private settings: Settings;
   private getSettings: () => Settings;
+  private feedbackRef!: FeedbackEngine;
 
   constructor(container: HTMLElement, feedback: FeedbackEngine) {
     this.root = container;
@@ -133,44 +152,78 @@ export class SettingsPanel {
   }
 
   private build(feedback: FeedbackEngine): void {
-    this.root.innerHTML =
-      SECTIONS.map((sec, si) => {
-        const rows = sec.rows.map((row, ri) => this.rowHtml(row, `${si}-${ri}`)).join('');
+    this.feedbackRef = feedback;
+    this.root.innerHTML = `
+      <div class="tabs" style="margin-bottom:12px">
+        ${DEVICE_TABS.map((t) => `<button class="tab device-tab" data-dev-tab="${t.key}">${t.label}</button>`).join('')}
+      </div>
+      <div id="device-tab-body"></div>
+    `;
+    this.root.querySelectorAll<HTMLElement>('.device-tab').forEach((tab) => {
+      tab.addEventListener('click', () => this.switchDeviceTab(tab.dataset.devTab as DeviceTab));
+    });
+    this.switchDeviceTab('base');
+
+    // 音效实时生效
+    configureSfx({ enabled: this.settings.sfxEnabled, volume: this.settings.sfxVolume });
+  }
+
+  private activeTab: DeviceTab = 'base';
+
+  private switchDeviceTab(tab: DeviceTab): void {
+    this.activeTab = tab;
+    this.root.querySelectorAll<HTMLElement>('.device-tab').forEach((t) => {
+      t.classList.toggle('active', t.dataset.devTab === tab);
+    });
+    const body = this.root.querySelector<HTMLElement>('#device-tab-body')!;
+    const sections = SECTIONS[tab];
+    body.innerHTML = sections
+      .map((sec, si) => {
+        const rows = sec.rows.map((row, ri) => this.rowHtml(row, `${tab}-${si}-${ri}`)).join('');
         const note = sec.note ? `<div class="sec-note">${sec.note}</div>` : '';
         return `<div class="sec">${sec.title}</div>${note}${rows}`;
-      }).join('') +
-      `
-      <div class="sec">手动测试</div>
-      <div class="sec-note">建议先低倍率逐项测试，确认合适后再对战。</div>
-      <div class="test-grid">
-        ${TEST_BUTTONS.map((b) => `<button class="btn" data-event="${b.event}">${b.label}</button>`).join('')}
-        <button class="btn" id="btn-test-punish">测试惩罚 10 秒</button>
-      </div>
-      `;
+      })
+      .join('');
 
-    SECTIONS.forEach((sec, si) => {
-      sec.rows.forEach((row, ri) => this.bindRow(row, `${si}-${ri}`));
+    sections.forEach((sec, si) => {
+      sec.rows.forEach((row, ri) => this.bindRow(row, `${tab}-${si}-${ri}`));
     });
 
-    this.root.querySelectorAll<HTMLButtonElement>('[data-event]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        feedback.reset();
-        feedback.fire(btn.dataset.event as FeedbackEvent);
-      });
-    });
-
-    this.root.querySelector<HTMLButtonElement>('#btn-test-punish')!.addEventListener('click', (e) => {
-      const btn = e.currentTarget as HTMLButtonElement;
-      feedback.reset();
-      feedback.startPunishment();
-      btn.disabled = true;
-      btn.textContent = '惩罚中…';
-      setTimeout(() => {
-        feedback.stopPunishment();
-        btn.disabled = false;
-        btn.textContent = '测试惩罚 10 秒';
-      }, 10000);
-    });
+    // 手动测试只在郊狼区显示（反馈相关）
+    if (tab === 'coyote') {
+      if (!this.root.querySelector('#device-test-block')) {
+        const div = document.createElement('div');
+        div.id = 'device-test-block';
+        div.innerHTML = `
+          <div class="sec">手动测试</div>
+          <div class="sec-note">建议先低倍率逐项测试，确认合适后再对战。</div>
+          <div class="test-grid" id="device-test-grid">
+            ${TEST_BUTTONS.map((b) => `<button class="btn" data-event="${b.event}">${b.label}</button>`).join('')}
+            <button class="btn" id="btn-test-punish">测试惩罚 10 秒</button>
+          </div>`;
+        body.appendChild(div);
+        div.querySelectorAll<HTMLButtonElement>('[data-event]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            this.feedbackRef.reset();
+            this.feedbackRef.fire(btn.dataset.event as FeedbackEvent);
+          });
+        });
+        div.querySelector<HTMLButtonElement>('#btn-test-punish')!.addEventListener('click', (e) => {
+          const btn = e.currentTarget as HTMLButtonElement;
+          this.feedbackRef.reset();
+          this.feedbackRef.startPunishment();
+          btn.disabled = true;
+          btn.textContent = '惩罚中…';
+          setTimeout(() => {
+            this.feedbackRef.stopPunishment();
+            btn.disabled = false;
+            btn.textContent = '测试惩罚 10 秒';
+          }, 10000);
+        });
+      }
+    } else {
+      this.root.querySelector('#device-test-block')?.remove();
+    }
   }
 
   private rowHtml(row: RowDef, id: string): string {
@@ -230,41 +283,10 @@ export class SettingsPanel {
           <input type="number" id="set-${id}-max" min="${row.min}" max="${row.max}" value="${maxV}" title="最大值" />
         </div>`;
       }
-      case 'weights': {
-        const weights = Array.isArray(this.settings.colorWeights) ? this.settings.colorWeights : [];
-        return `<div class="weight-grid" id="set-${id}">
-          ${WEIGHT_NAMES.map((name, i) => {
-            const v = Number(weights[i] ?? 0);
-            return `<div class="weight-row">
-              <span class="en-ico" style="background:${WEIGHT_COLORS[i]}; width:18px; height:18px"></span>
-              <span class="en-name">${name}</span>
-              <input type="range" data-idx="${i}" min="0" max="10" step="1" value="${v}" />
-              <span class="val" id="set-w-${id}-${i}">${v}</span>
-            </div>`;
-          }).join('')}
-        </div>`;
-      }
     }
   }
 
   private bindRow(row: RowDef, id: string): void {
-    if (row.kind === 'weights') {
-      const grid = this.root.querySelector<HTMLElement>(`#set-${id}`)!;
-      const store = this.settings as unknown as Record<string, unknown>;
-      grid.querySelectorAll<HTMLInputElement>('input[type="range"]').forEach((range) => {
-        range.addEventListener('input', () => {
-          const idx = Number(range.dataset.idx);
-          const pool = [...((store.colorWeights as number[]) ?? [])];
-          pool[idx] = Number(range.value);
-          store.colorWeights = pool;
-          const val = this.root.querySelector<HTMLElement>(`#set-w-${id}-${idx}`);
-          if (val) val.textContent = range.value;
-          saveSettings(this.settings);
-        });
-      });
-      return;
-    }
-
     if (row.kind === 'chips') {      const box = this.root.querySelector<HTMLElement>(`#set-${id}`)!;
       const store = this.settings as unknown as Record<string, unknown>;
       box.querySelectorAll<HTMLButtonElement>('.chip').forEach((chip) => {
@@ -331,6 +353,10 @@ export class SettingsPanel {
           break;
       }
       saveSettings(this.settings);
+      // 音效实时生效
+      if (row.key === 'sfxEnabled' || row.key === 'sfxVolume') {
+        configureSfx({ enabled: this.settings.sfxEnabled, volume: this.settings.sfxVolume });
+      }
     });
   }
 }

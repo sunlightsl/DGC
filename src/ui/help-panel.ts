@@ -3,11 +3,12 @@
 const TABS = [
   { key: 'bullet', label: '小电机弹幕' },
   { key: 'versus', label: '电击消消乐' },
+  { key: 'roulette', label: '恶魔轮盘' },
 ] as const;
 
 type TabKey = (typeof TABS)[number]['key'];
 
-const BULLET_HTML = `
+export const BULLET_HTML = `
   <p>单人弹幕射击，受击实时联动 <b>郊狼 / 负鼠 / 灵猫</b> 三设备：</p>
   <ol>
     <li><b>郊狼</b>：受击时输出电击脉冲，低血量时持续警告，死亡时一波爆发</li>
@@ -41,7 +42,7 @@ const BULLET_HTML = `
   <p>在「游戏设置」中调节全局倍率、系统强度上限、受击强度与时长、各设备波形。建议先低倍率逐项手动测试。所有输出都会被钳制在系统强度上限（可调，红线 100）与 APP 安全上限之内。</p>
 `;
 
-const VERSUS_HTML = `
+export const VERSUS_HTML = `
   <p>在线双人对战消消乐：消除自动触发效果电击对方，先达到目标分者胜，败者接受惩罚。双方各自控制自己的郊狼，设备不交给远端。</p>
 
   <h4>玩法规则</h4>
@@ -64,6 +65,23 @@ const VERSUS_HTML = `
 
   <h4>颜色比例</h4>
   <p>「游戏设置 → 颜色比例」可调整 6 色宝石的刷出权重（双方各自的棋盘用各自的设置）。默认电击多、防御少。</p>
+`;
+
+export const ROULETTE_HTML = `
+  <p>2 人回合制心理博弈：一把 6 弹巢左轮，每轮随机装入 1~3 发实弹（<b>数量公开、顺序保密</b>）。双方 HP 各 5 点，中弹时自己的郊狼被电击。</p>
+
+  <h4>玩法规则</h4>
+  <ol>
+    <li>轮流行动，每回合二选一：
+      <b>对对方开枪</b> —— 实弹则对方 HP-1，空弹无事；无论结果，回合交给对方</li>
+    <li><b>对自己开枪</b> —— 实弹则自己 HP-1 且回合交给对方；<b>空弹则保留回合</b>（俄罗斯轮盘经典博弈）</li>
+    <li>弹巢打空后自动进入下一轮：重新装弹，实弹数随轮数递增（最多 3 发）</li>
+    <li>HP 先归零者战败，进入与消消乐相同的惩罚流程：胜者实时控制波形与强度，可弹幕互动</li>
+  </ol>
+  <p>技巧：弹巢剩最后几发且实弹未出时，「对对方开枪」的命中率越来越高；对自己开枪空弹赚回合是翻盘关键。</p>
+
+  <h4>惩罚阶段</h4>
+  <p>与电击消消乐完全一致的惩罚面板：胜者点波形名即切换输出、拖动强度滑杆（上限 = 败者自己设置的惩罚强度上限）、随时停止；败者满 10 秒可认输；双方可发弹幕快捷语互相「交流」。</p>
 `;
 
 const COMMON_HTML = `
@@ -94,7 +112,7 @@ export function buildHelpContent(container: HTMLElement): void {
     container.querySelectorAll<HTMLElement>('.help-tab').forEach((b) => {
       b.classList.toggle('active', b.dataset.help === key);
     });
-    pane.innerHTML = (key === 'bullet' ? BULLET_HTML : VERSUS_HTML) + COMMON_HTML;
+    pane.innerHTML = (key === 'bullet' ? BULLET_HTML : key === 'versus' ? VERSUS_HTML : ROULETTE_HTML) + COMMON_HTML;
   };
 
   container.querySelectorAll<HTMLElement>('.help-tab').forEach((btn) => {

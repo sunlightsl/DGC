@@ -34,8 +34,9 @@ export interface Settings {
   /** 灵猫捏压触发阈值 */
   bmtrThreshold: number;
   bmtrCooldownMs: number;
-  /** 6 色刷出权重（0-10），红=电击 蓝=护盾 绿=净化 黄=时停 紫=倍率 橙=增幅 */
-  colorWeights: number[];
+  /** 游戏音效：开关 + 音量（0-1） */
+  sfxEnabled: boolean;
+  sfxVolume: number;
 }
 
 const STORAGE_KEY = 'dg-game-settings-v2';
@@ -70,14 +71,23 @@ export const DEFAULT_SETTINGS: Settings = {
   punishMaxSec: 120,
   bmtrThreshold: 30,
   bmtrCooldownMs: 1500,
-  colorWeights: [10, 3, 3, 5, 5, 6], // 电击最多，防御最少
+  sfxEnabled: true,
+  sfxVolume: 0.5,
 };
 
 function sanitizeWeights(value: unknown): number[] {
-  const fallback = [...DEFAULT_SETTINGS.colorWeights];
+  const fallback = [10, 3, 3, 5, 5, 6]; // 电击最多，防御最少
   if (!Array.isArray(value)) return fallback;
   return fallback.map((d, i) => clampNum(value[i], 0, 10, d));
 }
+
+/** 6 色刷出权重（消消乐游戏设置使用，0-10） */
+export function sanitizeColorWeights(value: unknown): number[] {
+  return sanitizeWeights(value);
+}
+
+/** 颜色权重默认值（电击/护盾/净化/时停/倍率/增幅） */
+export const DEFAULT_COLOR_WEIGHTS = [10, 3, 3, 5, 5, 6];
 
 function inRecord(record: object, key: unknown): key is string {
   return typeof key === 'string' && key in record;
@@ -143,9 +153,10 @@ export function loadSettings(): Settings {
     merged.punishStepSec = clampNum(merged.punishStepSec, 1, 30, DEFAULT_SETTINGS.punishStepSec);
     merged.punishRamp = clampNum(merged.punishRamp, 0, 20, DEFAULT_SETTINGS.punishRamp);
     merged.punishMaxSec = clampNum(merged.punishMaxSec, 30, 600, DEFAULT_SETTINGS.punishMaxSec);
-    merged.colorWeights = sanitizeWeights(merged.colorWeights);
     merged.bmtrThreshold = clampNum(merged.bmtrThreshold, 1, 100, DEFAULT_SETTINGS.bmtrThreshold);
     merged.bmtrCooldownMs = clampNum(merged.bmtrCooldownMs, 300, 10000, DEFAULT_SETTINGS.bmtrCooldownMs);
+    merged.sfxEnabled = typeof merged.sfxEnabled === 'boolean' ? merged.sfxEnabled : DEFAULT_SETTINGS.sfxEnabled;
+    merged.sfxVolume = clampNum(merged.sfxVolume, 0, 1, DEFAULT_SETTINGS.sfxVolume);
     return merged;
   } catch {
     return { ...DEFAULT_SETTINGS };

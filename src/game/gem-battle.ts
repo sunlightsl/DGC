@@ -7,6 +7,12 @@ import { drawIcon, ICON_BY_COLOR } from './icons';
 import { renderGaugePair } from '../ui/intensity-gauges';
 import { icoShield, icoUp } from '../ui/svg-icons';
 import { ensureNickname } from '../profile';
+import { getCurrentUser } from '../account';
+import { showTrophy, hideTrophy } from '../ui/trophy';
+import { initRoomChat, destroyRoomChat } from '../ui/room-chat';
+import { initVoice, destroyVoice } from '../ui/room-voice';
+import { playSfx } from '../audio/sfx';
+import type { VersusGameConfig } from '../game-settings';
 
 /**
  * 宝石法术对战 v2：
@@ -66,6 +72,8 @@ export interface BattleDeps {
   room: RoomClient;
   dm: DeviceManager;
   getSettings: () => Settings;
+  /** 消消乐个人设置（颜色比例等，按账号隔离） */
+  getGameConfig: () => VersusGameConfig;
   config: BattleConfig;
   onExit: () => void;
 }
@@ -84,8 +92,35 @@ interface FloatText {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** 惩罚阶段快捷弹幕：胜者挑衅 / 败者求饶，含蓄好玩不越界 */
+const WINNER_PHRASES = ['就这点本事？', '服不服？', '再来一局找回场子？', '这才刚开始', '承认吧，你输了', '准备好通电了吗'];
+const LOSER_PHRASES = ['错了错了', '轻一点嘛', '饶了我吧', '手滑，绝对是手滑', '给我等着', '下一局一定赢'];
+const DANMAKU_COLORS = ['#ffffff', '#f0c866', '#4cc2ff', '#4cff9d', '#ff9d4c'];
+
 function el<T extends HTMLElement = HTMLElement>(id: string, _ctor?: new () => T): T {
   return document.getElementById(id) as T;
+}
+
+/** 飘一条弹幕（自己和对方都能触发调用） */
+function showDanmaku(text: string): void {
+  const layer = el('danmaku-layer');
+  const item = document.createElement('div');
+  item.className = 'danmaku-item';
+  item.textContent = text;
+  item.style.top = `${8 + Math.random() * 55}%`;
+  item.style.color = DANMAKU_COLORS[Math.floor(Math.random() * DANMAKU_COLORS.length)];
+  item.style.fontSize = `${15 + Math.random() * 9}px`;
+  item.style.animationDuration = `${6 + Math.random() * 3}s`;
+  item.addEventListener('animationend', () => item.remove());
+  layer.appendChild(item);
+  // 保险：极端情况下 animationend 不触发
+  setTimeout(() => item.remove(), 10000);
+}
+
+/** 填充惩罚阶段双方的快捷语 chips */
+function fillPhraseChips(containerId: string, phrases: string[]): void {
+  const box = el(containerId);
+  box.innerHTML = phrases.map((p) => `<button type="button" class="chip" data-phrase="${p.replace(/"/g, '')}">${p}</button>`).join('');
 }
 
 let active: GemBattle | null = null;
@@ -105,7 +140,29 @@ function bindStaticControls(): void {
   el('btn-victory-exit').addEventListener('click', () => active?.exit());
   el('btn-victory-exit2').addEventListener('click', () => active?.exit());
 
-  el('punish-wave').addEventListener('input', () => active?.sendPunishCtl());
+  fillPhraseChips('punish-phrases', LOSER_PHRASES);
+  fillPhraseChips('victory-phrases', WINNER_PHRASES);
+
+  // 快捷语：点击即发送并本地飘出
+  for (const id of ['punish-phrases', 'victory-phrases']) {
+    el(id).addEventListener('click', (e) => {
+      const phrase = (e.target as HTMLElement).dataset?.phrase;
+      if (!phrase || !active) return;
+      active.sendDanmaku(phrase);
+    });
+  }
+
+  // 胜者波形 chips：事件委托，点选即切换输出（chips 内容每局重置）
+  el('punish-wave-chips').addEventListener('click', (e) => {
+    const chip = e.target as HTMLElement;
+    const key = chip.dataset?.key;
+    if (!key || !active) return;
+    const box = el('punish-wave-chips');
+    box.dataset.current = key;
+    box.querySelectorAll('.chip').forEach((c) => c.classList.toggle('active', c === chip));
+    active.sendPunishCtl();
+  });
+
   el('punish-intensity').addEventListener('input', () => {
     const range = el('punish-intensity', HTMLInputElement);
     const v = Number(range.value);
@@ -166,7 +223,9 @@ export class GemBattle {
 
   // 身份
   private myName: string;
+  private myUser = '';
   private peerName = '对方';
+  private peerUser = '';
 
   // 惩罚状态
   private punishTimer: ReturnType<typeof setInterval> | null = null;
@@ -194,6 +253,7 @@ export class GemBattle {
   constructor(deps: BattleDeps) {
     this.deps = deps;
     this.myName = deps.config.nickname || ensureNickname();
+    this.myUser = getCurrentUser()?.username ?? '';
     this.setBoardSize(deps.config.boardSize);
     this.targetScore = deps.config.targetScore;
     this.canvas = el('battle-canvas', HTMLCanvasElement);
@@ -214,7 +274,7 @@ export class GemBattle {
     active = this;
     this.fitCanvas();
     this.updateReadyUi();
-    this.deps.room.send({ kind: 'hello', name: this.myName, target: this.targetScore, board: this.deps.config.boardSize });
+    this.deps.room.send({ kind: 'hello', name: this.myName, user: this.myUser, target: this.targetScore, board: this.deps.config.boardSize });
     this.lastTs = performance.now();
     this.raf = requestAnimationFrame(this.loop);
   }
@@ -227,6 +287,10 @@ export class GemBattle {
     this.offMsg?.();
     this.offClose?.();
     this.deps.feedback.stopPunishment();
+    hideTrophy();
+    destroyRoomChat();
+    destroyVoice();
+    el('danmaku-layer').innerHTML = '';
     if (active === this) active = null;
   }
 
@@ -301,7 +365,7 @@ export class GemBattle {
 
   /** 按 colorWeights 加权随机一个颜色（防御色权重低 → 刷得少） */
   private rollColor(): number {
-    const w = this.deps.getSettings().colorWeights;
+    const w = this.deps.getGameConfig().colorWeights;
     let total = 0;
     for (let i = 0; i < COLORS.length; i++) total += Math.max(0, w[i] ?? 1);
     if (total <= 0) return Math.floor(Math.random() * COLORS.length);
@@ -538,6 +602,7 @@ export class GemBattle {
       const chainFactor = 1 + (chain - 1) * BALANCE.chainScoreStep;
       const gain = Math.round(n * BALANCE.scorePerGem * chainFactor * this.mult);
       this.score += gain;
+      playSfx('gem');
       this.spawnFloat(cx * CELL + CELL / 2, cy * CELL, `+${gain}`, chain > 1 ? `连锁×${chain}` : '', '#f0c866');
       this.applyColorEffects(counts, chain);
 
@@ -670,6 +735,8 @@ export class GemBattle {
   // ===== 网络 =====
 
   private bindNetwork(): void {
+    initRoomChat(this.deps.room, (self) => (self ? this.myName : this.peerName));
+    initVoice(this.deps.room, this.deps.room.role === 2 ? 2 : 1);
     this.offMsg = this.deps.room.onMessage((msg: RoomMessage) => {
       if (msg.t === 'peerLeft') {
         this.handlePeerLeft();
@@ -690,6 +757,7 @@ export class GemBattle {
     switch (kind) {
       case 'hello':
         this.peerName = String(msg.name ?? '对方');
+        this.peerUser = String(msg.user ?? '').slice(0, 16);
         if (this.deps.room.role === 2) {
           this.targetScore = Number(msg.target) || this.targetScore;
           el('target-val').textContent = `目标 ${this.targetScore}`;
@@ -769,6 +837,9 @@ export class GemBattle {
         this.ctlWaveform = String(msg.waveform ?? 'random');
         this.ctlIntensity = Math.max(0, Number(msg.intensity) || 0);
         break;
+      case 'danmaku':
+        showDanmaku(String(msg.text ?? '').slice(0, 30));
+        break;
       case 'over':
         // 分数制：over 由先到目标分的一方发出，接收方是败者 → 回传强度上限并进入惩罚
         this.deps.room.send({ kind: 'limits', punishMax: this.deps.getSettings().punishIntensityMax });
@@ -826,11 +897,13 @@ export class GemBattle {
     this.spawnFloat(CELL * 4, CELL * 4, '承受过载！', `冻结 ${BALANCE.overloadFreezeSec}s`, '#ff4c5e');
   }
 
-  /** 上报战绩（只有胜者上报一次） */
+  /** 上报战绩（只有胜者上报一次，比分进公示区） */
   private reportResult(iWon: boolean): void {
     if (this.resultReported) return;
     this.resultReported = true;
-    this.deps.room.reportResult('versus', iWon ? this.myName : this.peerName, iWon ? this.peerName : this.myName);
+    const winScore = iWon ? this.score : this.oppScore;
+    const loseScore = iWon ? this.oppScore : this.score;
+    this.deps.room.reportResult('versus', iWon ? this.myName : this.peerName, iWon ? this.peerName : this.myName, winScore, loseScore);
   }
 
   // ===== 胜负与惩罚 =====
@@ -839,6 +912,7 @@ export class GemBattle {
     if (this.phase !== 'playing') return;
     this.phase = 'punish';
     this.deps.feedback.fire('death');
+    playSfx('defeat');
     // 只由胜者上报战绩，避免双端重复计数
     el('result-punish').hidden = false;
     this.punishStartAt = performance.now();
@@ -910,11 +984,14 @@ export class GemBattle {
   private showVictory(punishMax: number): void {
     el('result-victory').hidden = false;
     el('victory-info').textContent = `${this.peerName} 战败，惩罚进行中…`;
+    playSfx('victory');
 
-    const sel = el('punish-wave', HTMLSelectElement);
-    sel.innerHTML =
-      `<option value="random">随机（对方惩罚池）</option>` +
-      COYOTE_WAVEFORM_OPTIONS.map((o) => `<option value="${o.key}">${o.label}</option>`).join('');
+    // 波形 chips：首位「随机」，点击即生效
+    const box = el('punish-wave-chips');
+    box.dataset.current = 'random';
+    box.innerHTML =
+      `<button type="button" class="chip active" data-key="random">随机（对方惩罚池）</button>` +
+      COYOTE_WAVEFORM_OPTIONS.map((o) => `<button type="button" class="chip" data-key="${o.key}">${o.label}</button>`).join('');
     const range = el('punish-intensity', HTMLInputElement);
     range.max = String(Math.max(1, punishMax));
     range.value = '0';
@@ -923,6 +1000,7 @@ export class GemBattle {
     el('victory-controls').hidden = false;
     el('victory-actions-punish').hidden = false;
     el('victory-actions-end').hidden = true;
+    void showTrophy(this.peerUser || this.peerName, this.peerName);
   }
 
   private showVictoryEnd(text: string): void {
@@ -931,6 +1009,7 @@ export class GemBattle {
     el('victory-actions-punish').hidden = true;
     el('victory-actions-end').hidden = false;
     this.updateRematchButtons();
+    hideTrophy();
   }
 
   /** 胜者主动停止对方惩罚 */
@@ -944,9 +1023,16 @@ export class GemBattle {
     if (this.phase !== 'won') return;
     this.deps.room.send({
       kind: 'punishCtl',
-      waveform: el('punish-wave', HTMLSelectElement).value,
+      waveform: el('punish-wave-chips').dataset.current || 'random',
       intensity: Number(el('punish-intensity', HTMLInputElement).value) || 0,
     });
+  }
+
+  /** 惩罚阶段发送弹幕快捷语（本地立刻飘出，同时发给对方） */
+  sendDanmaku(text: string): void {
+    if (this.phase !== 'punish' && this.phase !== 'won') return;
+    showDanmaku(text);
+    this.deps.room.send({ kind: 'danmaku', text });
   }
 
   // ===== 再来一局 =====

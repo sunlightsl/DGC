@@ -43,7 +43,7 @@ export class RoomClient {
     });
   }
 
-  async connect(url: string): Promise<void> {
+  async connect(url: string, token = ''): Promise<void> {
     this.close();
     this.serverUrl = url.trim();
     await new Promise<void>((resolve, reject) => {
@@ -51,9 +51,34 @@ export class RoomClient {
       const timer = setTimeout(() => reject(new Error('连接服务器超时')), 8000);
       ws.addEventListener('open', () => {
         clearTimeout(timer);
-        this.ws = ws;
-        this.connected = true;
-        resolve();
+        if (!token) {
+          this.ws = ws;
+          this.connected = true;
+          resolve();
+          return;
+        }
+        // 有令牌：先走 auth 握手，通过后才算连接成功
+        const authTimer = setTimeout(() => reject(new Error('鉴权超时')), 5000);
+        const onAuthMsg = (e: MessageEvent) => {
+          let msg: RoomMessage;
+          try {
+            msg = JSON.parse(String(e.data)) as RoomMessage;
+          } catch {
+            return;
+          }
+          if (msg.t === 'authOk') {
+            clearTimeout(authTimer);
+            this.ws = ws;
+            this.connected = true;
+            resolve();
+          } else if (msg.t === 'authFail') {
+            clearTimeout(authTimer);
+            ws.close();
+            reject(new Error('登录状态已失效，请重新登录'));
+          }
+        };
+        ws.addEventListener('message', onAuthMsg, { once: false });
+        ws.send(JSON.stringify({ t: 'auth', token }));
       });
       ws.addEventListener('error', () => {
         clearTimeout(timer);
@@ -80,9 +105,9 @@ export class RoomClient {
     });
   }
 
-  async createRoom(): Promise<string> {
+  async createRoom(game = 'versus'): Promise<string> {
     const done = this.waitFor('created');
-    this.sendRaw({ t: 'create' });
+    this.sendRaw({ t: 'create', game });
     const msg = await done;
     this.roomCode = String(msg.room);
     this.role = 1;
@@ -104,13 +129,77 @@ export class RoomClient {
     await started;
   }
 
+  /** 上报昵称：服务器用于在线统计与匹配展示 */
+  hello(nick: string): void {
+    this.sendRaw({ t: 'hello', nick });
+  }
+
+  private matchReject: ((msg: string) => void) | null = null;
+
+  /** 随机匹配：进入指定游戏队列（'any' 不限）并等待 matched → start；cancelMatch() 可取消 */
+  matchmake(game: string): Promise<'versus' | 'roulette'> {
+    return new Promise<'versus' | 'roulette'>((resolve, reject) => {
+      const matched = this.waitFor('matched', 0);
+      // 匹配可能要等很久，start 也不能用默认 8 秒超时
+      const started = this.waitFor('start', 0);
+      const bail = (msg: string) => {
+        this.sendRaw({ t: 'unmatch' }); // 失败/取消都确保离开服务器队列
+        this.pendingResolvers.delete('matched');
+        this.pendingResolvers.delete('start');
+        this.matchReject = null;
+        reject(new Error(msg));
+      };
+      this.matchReject = bail;
+      this.sendRaw({ t: 'match', game });
+      matched.then(
+        (msg) => {
+          this.matchReject = null;
+          this.roomCode = String(msg.room);
+          this.role = Number(msg.role) === 1 ? 1 : 2;
+          const resolvedGame = (String(msg.game) === 'roulette' ? 'roulette' : 'versus') as 'versus' | 'roulette';
+          started.then(
+            () => resolve(resolvedGame),
+            () => bail('匹配失败，请重试'),
+          );
+        },
+        () => bail('匹配失败，请重试'),
+      );
+    });
+  }
+
+  /** 离开匹配队列（使进行中的 matchmake() 以异常结束） */
+  cancelMatch(): void {
+    this.matchReject?.('已取消匹配');
+    this.matchReject = null;
+  }
+
+  /** 等待邀战被接受后服务器下发的 matched → start（双方共用） */
+  waitMatched(): Promise<{ room: string; role: 1 | 2; peer: string; game: string }> {
+    return new Promise((resolve, reject) => {
+      const matched = this.waitFor('matched', 0);
+      const started = this.waitFor('start', 30_000);
+      matched.then(
+        (msg) => {
+          const role: 1 | 2 = Number(msg.role) === 1 ? 1 : 2;
+          this.roomCode = String(msg.room);
+          this.role = role;
+          started.then(
+            () => resolve({ room: this.roomCode, role, peer: String(msg.peer ?? ''), game: String(msg.game ?? 'versus') }),
+            () => reject(new Error('开局超时')),
+          );
+        },
+        (err) => reject(err),
+      );
+    });
+  }
+
   send(payload: Record<string, unknown>): void {
     this.sendRaw({ ...payload, t: 'relay' });
   }
 
-  /** 上报战绩（直接给服务器，不进房间转发） */
-  reportResult(game: string, winner: string, loser: string): void {
-    this.sendRaw({ t: 'result', game, winner, loser });
+  /** 上报战绩（直接给服务器，不进房间转发）；比分用于公示区 */
+  reportResult(game: string, winner: string, loser: string, winScore?: number, loseScore?: number): void {
+    this.sendRaw({ t: 'result', game, winner, loser, winScore, loseScore });
   }
 
   /** 上报单机最高分 */
@@ -119,12 +208,39 @@ export class RoomClient {
   }
 
   /** 查询某游戏排行榜（前 20） */
-  requestBoard(game: 'versus' | 'bullet'): Promise<{ name: string; wins: number; losses: number; rate: number; best: number; games: number }[]> {
+  requestBoard(game: 'versus' | 'bullet' | 'roulette'): Promise<{ name: string; wins: number; losses: number; rate: number; best: number; games: number }[]> {
     const done = this.waitFor('board');
     this.sendRaw({ t: 'board', game });
     return done.then(
       (msg) => (Array.isArray(msg.list) ? msg.list : []) as { name: string; wins: number; losses: number; rate: number; best: number; games: number }[],
     );
+  }
+
+  /** 查询公示区记录（最近的公开对局） */
+  requestRecords(game?: string, limit = 50): Promise<{ game: string; winner: string; loser: string; winScore: number; loseScore: number; time: string }[]> {
+    const done = this.waitFor('records');
+    this.sendRaw({ t: 'records', game, limit });
+    return done.then(
+      (msg) => (Array.isArray(msg.list) ? msg.list : []) as { game: string; winner: string; loser: string; winScore: number; loseScore: number; time: string }[],
+    );
+  }
+
+  // ===== 大厅 =====
+
+  sendChat(text: string): void {
+    this.sendRaw({ t: 'chat', text });
+  }
+
+  requestOnline(): void {
+    this.sendRaw({ t: 'who' });
+  }
+
+  sendInvite(to: string, game: string): void {
+    this.sendRaw({ t: 'invite', to, game });
+  }
+
+  replyInvite(inviteId: string, accept: boolean): void {
+    this.sendRaw({ t: 'inviteReply', inviteId, accept });
   }
 
   private sendRaw(payload: RoomMessage): void {

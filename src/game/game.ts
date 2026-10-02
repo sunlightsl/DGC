@@ -1,5 +1,7 @@
 import type { FeedbackEngine } from '../devices/feedback-engine';
 import type { Settings } from '../settings';
+import type { BulletGameConfig } from '../game-settings';
+import { playSfx } from '../audio/sfx';
 import { circleHit } from './collision';
 import type { Bullet, Enemy, EnemyKind, Particle, Pickup } from './entities';
 import { makeBullet, makeExplosion } from './entities';
@@ -11,6 +13,7 @@ export type GameState = 'title' | 'playing' | 'paused' | 'over';
 export interface GameDeps {
   feedback: FeedbackEngine;
   getSettings: () => Settings;
+  getGameConfig: () => BulletGameConfig;
   getPressure: () => number | null;
   /** 游戏结束提交最高分（上报服务器排行） */
   submitScore?: (score: number) => void;
@@ -190,13 +193,14 @@ export class Game {
   };
 
   private reset(): void {
+    const cfg = this.deps.getGameConfig();
     this.player = { x: W / 2, y: H - 80, hp: PLAYER_MAX_HP, iframes: 0, fireCd: 0 };
     this.bullets = [];
     this.enemies = [];
     this.particles = [];
     this.score = 0;
     this.wave = 1;
-    this.bombs = 3;
+    this.bombs = Math.min(MAX_BOMBS, Math.max(1, cfg.initialBombs));
     this.time = 0;
     this.waveTimer = WAVE_DURATION;
     this.spawnCd = 1;
@@ -375,16 +379,18 @@ export class Game {
       boss: { hp: 1, r: 34 },
     };
     let { hp, r } = base[kind];
+    const cfg = this.deps.getGameConfig();
     const elite = this.wave >= 4 && Math.random() < 0.15;
     if (elite) {
       hp = Math.round(hp * 2.5);
       r = Math.round(r * 1.3);
     }
+    hp = Math.max(1, Math.round(hp * cfg.enemyHpMul));
 
     const fireCd: Record<EnemyKind, number> = { drifter: 0.5, turret: 2.4, aimer: 2.0, boss: 1 };
     this.enemies.push({
       pos: { x: 50 + Math.random() * (W - 100), y: -30 },
-      vel: { x: 0, y: 45 + Math.random() * 30 + this.wave * 3 },
+      vel: { x: 0, y: (45 + Math.random() * 30 + this.wave * 3) * cfg.enemySpeedMul },
       hp,
       maxHp: hp,
       r: elite ? r + 4 : r,
@@ -428,10 +434,12 @@ export class Game {
       }
       if (e.pos.y > H + 50) {
         e.dead = true;
-        // 漏怪惩罚：不扣血，但设备给一下反馈
+        // 漏怪惩罚：不扣血，设备给一下反馈（可在游戏设置关闭）
         if (e.kind !== 'boss') {
           this.leaks += 1;
-          this.deps.feedback.fire('hit');
+          if (this.deps.getGameConfig().leakShock) {
+            this.deps.feedback.fire('hit');
+          }
           makeExplosion(this.particles, e.pos.x, H - 10, '#ff4c5e', 10);
         }
       }
@@ -508,6 +516,7 @@ export class Game {
       p.iframes = IFRAMES;
       this.shake = 5;
       makeExplosion(this.particles, p.x, p.y, '#4cc2ff', 22);
+      playSfx('hit');
       return;
     }
     p.hp -= HIT_DAMAGE;
@@ -515,10 +524,12 @@ export class Game {
     this.shake = 8;
     makeExplosion(this.particles, p.x, p.y, '#ff4c5e', 18);
     this.deps.feedback.fire('hit');
+    playSfx('hit');
 
     if (p.hp <= 0) {
       p.hp = 0;
       this.setState('over');
+      playSfx('defeat');
       if (this.lowHp) {
         this.lowHp = false;
         this.deps.feedback.fire('lowHpOff');
@@ -584,6 +595,7 @@ export class Game {
     }
     this.shake = 12;
     this.deps.feedback.fire('bomb');
+    playSfx('shot');
   }
 
   private updateBullets(dt: number): void {
@@ -690,6 +702,7 @@ export class Game {
     if (def.key === 'shield') this.shieldCharges = Math.min(1, this.shieldCharges + 1);
     if (def.key === 'surge') this.player.hp = Math.min(PLAYER_MAX_HP, this.player.hp + 30);
     this.score += 200;
+    playSfx('victory');
   }
 
   private render(): void {
