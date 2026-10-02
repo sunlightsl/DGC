@@ -112,7 +112,7 @@ export const GAME_DEFS: GameSettingsDef[] = [
   },
   {
     game: 'roulette',
-    title: '恶魔轮盘 · 游戏设置',
+    title: '俄罗斯轮盘 · 游戏设置',
     fields: [
       {
         kind: 'select',

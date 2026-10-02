@@ -162,7 +162,7 @@ function sendChat(): void {
 /** 收到邀战：顶部横幅提示，30 秒自动消失 */
 function showInvitePrompt(inv: { inviteId: string; from: string; nick: string; game: string }): void {
   dismissInvitePrompt();
-  const gameName = inv.game === 'roulette' ? '恶魔轮盘' : '电击消消乐';
+  const gameName = inv.game === 'roulette' ? '俄罗斯轮盘' : '电击消消乐';
   const banner = document.createElement('div');
   banner.className = 'invite-banner';
   banner.id = 'invite-banner';

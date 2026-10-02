@@ -3,7 +3,7 @@
 const TABS = [
   { key: 'bullet', label: '小电机弹幕' },
   { key: 'versus', label: '电击消消乐' },
-  { key: 'roulette', label: '恶魔轮盘' },
+  { key: 'roulette', label: '俄罗斯轮盘' },
 ] as const;
 
 type TabKey = (typeof TABS)[number]['key'];

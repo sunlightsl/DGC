@@ -11,7 +11,7 @@ export type IntroGame = 'bullet' | 'versus' | 'roulette';
 const TITLES: Record<IntroGame, string> = {
   bullet: '小电机弹幕 · 玩法说明',
   versus: '电击消消乐 · 玩法说明',
-  roulette: '恶魔轮盘 · 玩法说明',
+  roulette: '俄罗斯轮盘 · 玩法说明',
 };
 
 const BODIES: Record<IntroGame, string> = {

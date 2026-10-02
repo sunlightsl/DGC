@@ -11,7 +11,7 @@ import { playSfx } from '../audio/sfx';
 import type { RouletteGameConfig } from '../game-settings';
 
 /**
- * 恶魔轮盘（2 人回合制联机）：
+ * 俄罗斯轮盘（2 人回合制联机）：
  * - 6 弹巢左轮，每轮随机 1~3 发实弹（数量公开，顺序保密）
  * - 轮到自己选择「对对方开枪」或「对自己开枪」
  *   · 对对方：实弹对方 HP-1；无论中弹与否回合移交对方

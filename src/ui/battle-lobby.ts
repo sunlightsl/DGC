@@ -154,7 +154,7 @@ export class BattleLobby {
     if (note) {
       note.textContent =
         game === 'roulette'
-          ? '恶魔轮盘：实弹数量公开、顺序保密；对自己开枪空弹赚回合，HP 先归零者受罚。'
+          ? '俄罗斯轮盘：实弹数量公开、顺序保密；对自己开枪空弹赚回合，HP 先归零者受罚。'
           : '消除自动触发效果，先达到目标分者胜；败者接受惩罚。';
     }
     this.syncGameRows();

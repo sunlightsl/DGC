@@ -43,7 +43,7 @@ const VERSUS_CARDS: { key: VersusGame; name: string; desc: string; icon: string 
   },
   {
     key: 'roulette',
-    name: '恶魔轮盘',
+    name: '俄罗斯轮盘',
     desc: '6 弹巢俄罗斯轮盘：实弹数量公开、顺序保密。对对方开枪必交回合，对自己开枪空弹赚回合；HP 先归零者受罚。',
     icon: `<svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.2"/><circle cx="12" cy="6.2" r="1.6"/><circle cx="17.8" cy="12" r="1.6"/><circle cx="12" cy="17.8" r="1.6"/><circle cx="6.2" cy="12" r="1.6"/></svg>`,
   },
@@ -118,7 +118,7 @@ function buildVersus(): void {
           <div class="social-match-opts">
             <button data-match-game="any">不限游戏（随机）</button>
             <button data-match-game="versus">电击消消乐</button>
-            <button data-match-game="roulette">恶魔轮盘</button>
+            <button data-match-game="roulette">俄罗斯轮盘</button>
           </div>
         </div>
       </div>
@@ -390,7 +390,7 @@ function buildSocial(): void {
           <div class="social-match-opts">
             <button data-match-game="any">不限游戏（随机）</button>
             <button data-match-game="versus">电击消消乐</button>
-            <button data-match-game="roulette">恶魔轮盘</button>
+            <button data-match-game="roulette">俄罗斯轮盘</button>
           </div>
         </div>
       </div>
@@ -543,7 +543,7 @@ function renderSocialInvite(): void {
     <div class="social-invite-name">与 <b style="color:var(--gold)">${escapeHtml(nick)}</b> 来一局</div>
     <div class="social-invite-btns">
       <button class="btn-gold btn-lg" data-invite-game="versus" style="width:100%">邀战 · 电击消消乐</button>
-      <button class="btn btn-lg" data-invite-game="roulette" style="width:100%">邀战 · 恶魔轮盘</button>
+      <button class="btn btn-lg" data-invite-game="roulette" style="width:100%">邀战 · 俄罗斯轮盘</button>
     </div>
     <div class="hint" style="margin-top:10px">对方接受后自动建房开局；对方会收到横幅提示。</div>`;
 }
